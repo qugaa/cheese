@@ -2,62 +2,153 @@
 
 **Asynchronous Time-Management & Availability-Synchronization Application**
 
-A high-fidelity native iOS prototype built with SwiftUI, designed and evaluated strictly on HCI methodologies and Cognitive Ergonomics principles.
+A high-fidelity native Android prototype built with Jetpack Compose and Material 3, designed and evaluated strictly on HCI methodologies and Cognitive Ergonomics principles.
+
+---
+
+## Architecture Migration
+
+> **Note:** This project was originally prototyped in SwiftUI (iOS 17+). The codebase has since been fully migrated to a native Android implementation using Jetpack Compose. All SwiftUI source files have been removed. The Android prototype is the canonical reference implementation going forward.
+
+| Layer | Legacy (iOS) | Current (Android) |
+|---|---|---|
+| **UI Framework** | SwiftUI (iOS 17+) | Jetpack Compose (Material 3) |
+| **State Management** | `@Observable` (`ScheduleStore`) | `ScheduleViewModel` + `StateFlow` |
+| **Navigation** | `TabView` + `NavigationStack` | Compose `NavHost` (single Activity) |
+| **Theme** | Apple HIG standard widgets | Material 3 dynamic color (`dynamicLightColorScheme`) |
+| **Backend** | None — mock local state | None — mock local state (`MOCK_PARTICIPANTS`) |
+
+---
 
 ## Concept
 
-Cheese replaces chaotic, synchronous group chat negotiations with a structured, deterministic data-gathering protocol. It minimizes cognitive overload in Computer-Supported Cooperative Work (CSCW) by decomposing group scheduling into three discrete tasks:
+Cheese replaces chaotic, synchronous group-chat negotiations with a structured, deterministic data-gathering protocol. It minimises cognitive overload in Computer-Supported Cooperative Work (CSCW) by decomposing group scheduling into three discrete tasks:
 
-1. **Organize** — The host defines temporal constraints (event name, date range)
-2. **Respond** — Participants submit binary availability per day
-3. **Results** — The system aggregates responses and recommends the optimal date
+1. **Organize** — The host defines the event name and temporal date-range constraints
+2. **Respond** — Each participant paints their availability onto a weekly time-grid using a continuous drag gesture
+3. **Results** — The system aggregates responses into a color-coded heatmap and recommends the optimal time slot
+
+---
 
 ## Architecture
 
 | Layer | Implementation |
-|-------|---------------|
-| **UI Framework** | SwiftUI (iOS 17+) |
-| **State Management** | `@Observable` (`ScheduleStore`) |
-| **Navigation** | `TabView` (flat IA) + `NavigationStack` (progressive disclosure) |
-| **Backend** | None — mock local state simulates multi-user data |
-| **Design System** | Apple HIG standard widgets only |
+|---|---|
+| **UI Framework** | Jetpack Compose (Material 3) |
+| **State Management** | `ScheduleViewModel` (Activity-scoped `ViewModel`) with `MutableStateFlow` / `StateFlow` |
+| **Navigation** | `NavHost` + `NavController` — three composable destinations |
+| **Data Models** | `EventRequest`, `ParticipantResponse`, `GridConfig` (see `data/Models.kt`) |
+| **Theme** | `CheeseTheme` — Material 3 dynamic color; falls back gracefully on API < 31 |
+| **Min SDK** | API 34 (Android 14) |
+| **Backend** | None — mock multi-user data via `MOCK_PARTICIPANTS` list |
+
+---
 
 ## Project Structure
 
 ```
-Cheese/
-├── CheeseApp.swift              # @main entry point, environment injection
-├── ContentView.swift             # Root TabView navigation
-├── Models/
-│   └── ScheduleStore.swift       # Data models + @Observable state store
-└── Views/
-    ├── OrganizerView.swift       # Task 1: Event creation form + dashboard
-    ├── ParticipantView.swift     # Task 2: Binary availability toggles
-    └── ResultsView.swift         # Task 3: Aggregated results + finalization
+app/src/main/java/com/example/cheese/
+├── MainActivity.kt                   # Single Activity; hosts CheeseApp NavHost
+├── data/
+│   └── Models.kt                     # EventRequest, ParticipantResponse, GridConfig
+├── ui/
+│   ├── OrganizerScreen.kt            # Screen 1: Event creation form
+│   ├── ParticipantScreen.kt          # Screen 2: Drag-to-paint availability grid
+│   ├── ResolutionScreen.kt           # Screen 3: Heatmap aggregation & finalization
+│   └── theme/
+│       ├── CheeseTheme.kt            # Material 3 dynamic color wrapper
+│       ├── Color.kt                  # Fallback color tokens
+│       ├── Theme.kt                  # Light/dark color schemes
+│       └── Type.kt                  # Typography scale
+└── viewmodel/
+    └── ScheduleViewModel.kt          # Single source of truth; shared across all screens
 ```
 
-## Xcode Setup
+---
 
-1. Open Xcode → **File → New → Project**
-2. Select **iOS → App** template
-3. Set Product Name to `Cheese`, Interface to **SwiftUI**, Language to **Swift**
-4. Set minimum deployment target to **iOS 17.0**
-5. Delete the auto-generated `ContentView.swift` and `CheeseApp.swift`
-6. Drag the `Cheese/` folder from this repository into the Xcode project navigator
-7. Ensure all `.swift` files are added to the `Cheese` target
-8. Build and run (`⌘R`)
+## Navigation Flow
+
+```
+organizer ──[Request Availability]──► participant
+participant ──[Submit (repeated per user)]──► participant   (recomposes in-place)
+participant ──[All users submitted]──► resolution
+resolution ──[Back]──► organizer
+```
+
+- The `participant` destination is popped from the back-stack when the resolution screen is entered, so pressing Back on the results screen returns to the organizer — not a stale participant screen.
+- A single `ScheduleViewModel` is scoped to the `Activity` lifecycle, shared across all three destinations with zero serialisation overhead.
+
+---
+
+## Screen Descriptions
+
+### Screen 1 — Organizer Initiation (`OrganizerScreen.kt`)
+- **Event Name** input via `OutlinedTextField`
+- **Availability Window** selection via two Material 3 `DatePickerDialog` instances (start and end dates)
+- **Request Availability** CTA button — disabled until a non-blank event name is entered
+- Non-modal `Snackbar` confirmation: `"Group Request Sent"`
+
+### Screen 2 — Participant Availability Input (`ParticipantScreen.kt`)
+- **Drag-to-paint grid** — a `14 × 7` matrix (08:00–21:00 × Mon–Sun)
+- Continuous `detectDragGestures` pointer stream; every move event resolves a `(row, col)` pair and marks that cell as available
+- Selected cells rendered in Material Green 800 (`#2E7D32`) for immediate visual feedback
+- Cell sizing derived from `BoxWithConstraints` — no hard-coded dp values, ensuring correct touch-target sizes across all densities
+- Simulates four participants sequentially: **Alice → Bob → Carol → Dave**
+- **Submit Availability** CTA — disabled until at least one cell is painted
+
+### Screen 3 — Algorithmic Resolution & Finalization (`ResolutionScreen.kt`)
+- **Color-coded heatmap** — each cell's background interpolates from Green 200 (low consensus) to Green 900 (high consensus) using a continuous `lerp`
+- **Optimal cell** highlighted with an accent `tertiary` border — the slot with the maximum participant count (ties broken by earliest index)
+- **Organizer override** — tapping any populated heatmap cell selects it as the proposed final slot
+- **Set Final Event** — opens a `ModalBottomSheet` with the final calendar summary: event name, date window, chosen day/time, and a participant consensus progress bar
+
+---
 
 ## HCI Principles Applied
 
-- **Fitts' Law**: All interactive elements span maximum width; tabs at screen edge
-- **Noun-Verb Paradigm**: Data state (noun) must be defined before actions (verb) are enabled
-- **Locus of Attention**: State preserved across interruptions; non-intrusive Alert/sheet feedback
-- **Hick's Law**: Binary toggles minimize choice complexity per decision point
-- **Error Prevention**: DatePicker constraints, disabled buttons on invalid state, conservative defaults
-- **User Autonomy**: Revise/reset actions available at every terminal state (Nielsen #3)
+| Principle | Application |
+|---|---|
+| **Fitts' Law** | All primary CTA buttons span full screen width; date-picker trigger is a `TextButton` inside the field trailing area |
+| **Hick's Law** | Fixed 14×7 grid eliminates open-ended time selection; date-range bounding shrinks the participant decision space |
+| **Noun-Verb Paradigm** | Cell selection (Noun) gates the Submit/Finalize action (Verb); buttons are disabled until a valid selection exists |
+| **Locus of Attention** | Non-blocking `Snackbar` and `ModalBottomSheet` overlays preserve screen context; heatmap remains visible behind the bottom sheet |
+| **Pre-attentive Processing** | Monotonic green saturation gradient on the heatmap enables instant identification of high-consensus slots without reading numbers |
+| **Error Prevention** | Submit disabled on empty draft; Finalize disabled on no selected cell; date picker uses native calendar validation |
+| **Feedback Principle** | Immediate cell-color change on drag paint; Snackbar confirmations on submission and request dispatch |
 
-## Requirements
+---
 
-- Xcode 15+
-- iOS 17.0+
-- Swift 5.9+
+## Build & Run
+
+### Prerequisites
+
+- Android Studio Hedgehog (2023.1.1) or later
+- JDK 17+
+- Android SDK API 34+
+
+### Steps
+
+```bash
+# Clone the repository
+git clone https://github.com/qugaa/cheese.git
+cd cheese
+
+# Open in Android Studio or build via Gradle wrapper
+./gradlew assembleDebug
+
+# Install on a connected device or running emulator
+./gradlew installDebug
+```
+
+Or open the project root in **Android Studio** and press **Run (⇧F10 / Shift+F10)**.
+
+---
+
+## Ignore Configuration
+
+| File | Purpose |
+|---|---|
+| `.gitignore` | Excludes macOS artefacts, Xcode legacy files, Android build outputs, and `.clinerules/` from version control |
+| `.clineignore` | Excludes Android build directories, Gradle caches, `.idea/`, and `.clinerules/` from AI code-context indexing |
+
+> `.clinerules/` is excluded from **both** files to ensure local AI prompt instructions are never tracked or surfaced in code reviews.

@@ -76,4 +76,37 @@ fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
 
+# ── Android / Gradle ─────────────────────────────────────────────────────────
+
+# Gradle build cache and daemon files
+.gradle/
+gradle/gradle-daemon-jvm.properties
+
+# Android build outputs
+app/build/
+**/build/
+*.apk
+*.aab
+*.ap_
+
+# Local machine properties (contains SDK path — machine-specific)
+local.properties
+
+# ── IntelliJ / Android Studio IDE ────────────────────────────────────────────
+# Only .idea/.gitignore and .idea/caches/deviceStreaming.xml are retained
+# (already tracked). All other IDE-generated workspace files are excluded.
+
+.idea/AndroidProjectSystem.xml
+.idea/codeStyles/
+.idea/compiler.xml
+.idea/deploymentTargetSelector.xml
+.idea/deviceManager.xml
+.idea/gradle.xml
+.idea/inspectionProfiles/
+.idea/markdown.xml
+.idea/misc.xml
+.idea/runConfigurations.xml
+.idea/vcs.xml
+
+# ── Local AI instructions — never tracked ────────────────────────────────────
 .clinerules/

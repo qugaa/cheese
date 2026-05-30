@@ -5,3 +5,9 @@
 /.idea/
 *.apk
 *.aab
+
+# Cline local AI instructions — never tracked or read
+.clinerules/
+
+# Self-referential exclusion
+.clineignore

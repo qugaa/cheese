@@ -34,6 +34,14 @@ class ScheduleViewModel : ViewModel() {
         _currentEventId.value = eventId
     }
 
+    fun editEvent(eventId: String) {
+        _currentEventId.value = eventId
+        val state = _events.value.find { it.request.id == eventId }
+        if (state != null) {
+            _eventRequest.value = state.request
+        }
+    }
+
     fun deleteEvent(eventId: String) {
         _events.update { list -> list.filterNot { it.request.id == eventId } }
         if (_currentEventId.value == eventId) {
@@ -123,16 +131,15 @@ class ScheduleViewModel : ViewModel() {
     /** Called when the organizer finalizes the event request and moves to View 2. */
     fun finalizeEventRequest() {
         val request = _eventRequest.value
-        val newState = EventState(request = request)
         _events.update { list ->
-            // Replace if exists, otherwise add
             val idx = list.indexOfFirst { it.request.id == request.id }
             if (idx >= 0) {
+                val existing = list[idx]
                 val mut = list.toMutableList()
-                mut[idx] = newState
+                mut[idx] = existing.copy(request = request)
                 mut
             } else {
-                list + newState
+                list + EventState(request = request)
             }
         }
     }

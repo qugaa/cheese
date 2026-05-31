@@ -6,8 +6,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,13 +19,17 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -67,6 +71,7 @@ import kotlinx.coroutines.launch
 fun ParticipantScreen(
     viewModel: ScheduleViewModel,
     onSubmitted: () -> Unit,
+    onEditEvent: () -> Unit,
     onBackToDashboard: () -> Unit
 ) {
     val draftAvailability by viewModel.draftAvailability.collectAsState()
@@ -99,6 +104,13 @@ fun ParticipantScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Share Your Available Times") },
+                actions = {
+                    if (isOrganizer) {
+                        IconButton(onClick = onEditEvent) {
+                            Icon(androidx.compose.material.icons.Icons.Default.Edit, contentDescription = "Edit Event Details")
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
@@ -111,6 +123,7 @@ fun ParticipantScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .animateContentSize()
+                    .navigationBarsPadding()
             ) {
                 Button(
                     onClick = {
@@ -293,7 +306,6 @@ private fun AvailabilityGrid(
                         .pointerInput(gridConfig, restrictedCells, cellWidth) {
                             val cellWidthPx = cellWidth.toPx()
                             val cellHeightPx = cellHeight.toPx()
-                            val touchSlop = viewConfiguration.touchSlop
 
                             fun cellAt(offset: Offset): Int {
                                 val col = (offset.x / cellWidthPx)
@@ -303,50 +315,45 @@ private fun AvailabilityGrid(
                                 return gridConfig.cellIndex(row, col)
                             }
 
-                            awaitEachGesture {
-                                val down = awaitFirstDown(requireUnconsumed = false)
-                                var isDrag = false
-                                var lastPainted = -1
-
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull { it.id == down.id }
-                                        ?: break
-
-                                    if (change.changedToUpIgnoreConsumed()) {
-                                        // Pointer lifted. If we never crossed slop
-                                        // it's a tap → toggle the cell under it.
-                                        if (!isDrag) {
-                                            val idx = cellAt(change.position)
-                                            if (idx !in restrictedCells) onCellToggled(idx)
-                                        }
-                                        change.consume()
-                                        break
-                                    }
-
-                                    if (!isDrag &&
-                                        (change.position - down.position).getDistance() > touchSlop
-                                    ) {
-                                        isDrag = true
-                                        // Paint the cell the drag originated in.
-                                        val startIdx = cellAt(down.position)
-                                        if (startIdx !in restrictedCells) {
-                                            onCellPainted(startIdx)
-                                            lastPainted = startIdx
-                                        }
-                                    }
-
-                                    if (isDrag) {
-                                        // Claim the move so the parent scrolls don't.
-                                        change.consume()
-                                        val idx = cellAt(change.position)
-                                        if (idx != lastPainted && idx !in restrictedCells) {
-                                            onCellPainted(idx)
-                                            lastPainted = idx
-                                        }
-                                    }
+                            detectTapGestures(
+                                onTap = { offset ->
+                                    val idx = cellAt(offset)
+                                    if (idx !in restrictedCells) onCellToggled(idx)
                                 }
+                            )
+                        }
+                        .pointerInput(gridConfig, restrictedCells, cellWidth) {
+                            val cellWidthPx = cellWidth.toPx()
+                            val cellHeightPx = cellHeight.toPx()
+
+                            fun cellAt(offset: Offset): Int {
+                                val col = (offset.x / cellWidthPx)
+                                    .toInt().coerceIn(0, gridConfig.cols - 1)
+                                val row = (offset.y / cellHeightPx)
+                                    .toInt().coerceIn(0, gridConfig.rows - 1)
+                                return gridConfig.cellIndex(row, col)
                             }
+
+                            var lastPainted = -1
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { offset ->
+                                    val idx = cellAt(offset)
+                                    if (idx !in restrictedCells) {
+                                        onCellPainted(idx)
+                                        lastPainted = idx
+                                    }
+                                },
+                                onDrag = { change, _ ->
+                                    change.consume()
+                                    val idx = cellAt(change.position)
+                                    if (idx != lastPainted && idx !in restrictedCells) {
+                                        onCellPainted(idx)
+                                        lastPainted = idx
+                                    }
+                                },
+                                onDragEnd = { lastPainted = -1 },
+                                onDragCancel = { lastPainted = -1 }
+                            )
                         }
                 ) {
                     Column {

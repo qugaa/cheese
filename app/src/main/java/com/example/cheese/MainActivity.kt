@@ -88,9 +88,7 @@ fun CheeseApp() {
                 viewModel = scheduleViewModel,
                 onRequestSent = {
                     scheduleViewModel.finalizeEventRequest()
-                    navController.navigate("participant") {
-                        popUpTo("organizer") { inclusive = true }
-                    }
+                    navController.navigate("participant")
                 }
             )
         }
@@ -103,6 +101,15 @@ fun CheeseApp() {
                     if (scheduleViewModel.getResponses().size >= scheduleViewModel.totalParticipants()) {
                         navController.navigate("resolution") {
                             popUpTo("participant") { inclusive = true }
+                        }
+                    }
+                },
+                onEditEvent = {
+                    val currentId = scheduleViewModel.currentEventId.value
+                    if (currentId != null) {
+                        scheduleViewModel.editEvent(currentId)
+                        navController.navigate("organizer") {
+                            popUpTo("dashboard")
                         }
                     }
                 },

@@ -11,6 +11,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import com.example.cheese.data.DateOffset
+import com.example.cheese.data.EventTemplate
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.DayOfWeek
+import java.time.temporal.TemporalAdjusters
 
 class ScheduleViewModel : ViewModel() {
 
@@ -28,6 +34,48 @@ class ScheduleViewModel : ViewModel() {
         _currentParticipantIndex.value = 0
         _draftAvailability.value = emptySet()
         _currentEventId.value = newEvent.id
+    }
+
+    // ── Templates ─────────────────────────────────────────────────────────────
+
+    private val _templates = MutableStateFlow<List<EventTemplate>>(
+        listOf(
+            EventTemplate(emoji = "🍿", name = "Cinema", dateOffset = DateOffset.TOMORROW),
+            EventTemplate(emoji = "🍻", name = "Bar", dateOffset = DateOffset.TODAY),
+            EventTemplate(emoji = "📚", name = "Study Session", dateOffset = DateOffset.WEEKEND)
+        )
+    )
+    val templates: StateFlow<List<EventTemplate>> = _templates.asStateFlow()
+
+    fun createFromTemplate(template: EventTemplate) {
+        val today = LocalDate.now(ZoneOffset.UTC)
+        val date = when (template.dateOffset) {
+            DateOffset.TODAY -> today
+            DateOffset.TOMORROW -> today.plusDays(1)
+            DateOffset.WEEKEND -> {
+                if (today.dayOfWeek == DayOfWeek.SATURDAY || today.dayOfWeek == DayOfWeek.SUNDAY) today
+                else today.with(TemporalAdjusters.next(DayOfWeek.SATURDAY))
+            }
+            DateOffset.CUSTOM -> today
+        }
+        val dateMillis = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+
+        val newEvent = EventRequest(
+            eventEmoji = template.emoji,
+            eventName = template.name,
+            startDateMillis = dateMillis,
+            endDateMillis = dateMillis,
+            startHour = 8,
+            endHour = 22
+        )
+        _eventRequest.value = newEvent
+        _currentParticipantIndex.value = 0
+        _draftAvailability.value = emptySet()
+        _currentEventId.value = newEvent.id
+    }
+
+    fun saveTemplate(template: EventTemplate) {
+        _templates.update { it + template }
     }
 
     fun selectEvent(eventId: String) {
@@ -70,6 +118,12 @@ class ScheduleViewModel : ViewModel() {
     fun updateDateRange(startMillis: Long, endMillis: Long) {
         _eventRequest.update {
             it.copy(startDateMillis = startMillis, endDateMillis = endMillis)
+        }
+    }
+
+    fun updateTimeRange(startHour: Int, endHour: Int) {
+        _eventRequest.update {
+            it.copy(startHour = startHour, endHour = endHour)
         }
     }
 
@@ -207,7 +261,12 @@ class ScheduleViewModel : ViewModel() {
                     
                     var updatedRestrictions = state.organizerRestrictions
                     if (_currentParticipantIndex.value == 0) {
-                        val gridConfig = GridConfig(state.request.startDateMillis, state.request.endDateMillis)
+                        val gridConfig = GridConfig(
+                            state.request.startDateMillis, 
+                            state.request.endDateMillis,
+                            state.request.startHour,
+                            state.request.endHour
+                        )
                         val allCells = (0 until gridConfig.totalCells).toSet()
                         updatedRestrictions = allCells - draft
                     }

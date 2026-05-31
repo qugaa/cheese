@@ -5,6 +5,21 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
+
+enum class DateOffset(val label: String) {
+    TODAY("Today"),
+    TOMORROW("Tomorrow"),
+    WEEKEND("This Weekend"),
+    CUSTOM("Custom")
+}
+
+data class EventTemplate(
+    val id: String = UUID.randomUUID().toString(),
+    val emoji: String,
+    val name: String,
+    val dateOffset: DateOffset
+)
+
 /**
  * A participant invited to the event.
  *
@@ -34,6 +49,8 @@ data class EventRequest(
     val eventName: String = "",
     val startDateMillis: Long = 0L,
     val endDateMillis: Long = 0L,
+    val startHour: Int = 8,
+    val endHour: Int = 22,
     val invitees: List<Invitee> = emptyList()
 )
 
@@ -64,9 +81,14 @@ data class EventState(
  * Dynamic grid dimensions based on the event's date range.
  * The number of columns adapts dynamically to the concrete calendar dates.
  */
-data class GridConfig(val startDateMillis: Long, val endDateMillis: Long) {
-    /** Time slots: 08:00 – 21:00, one row per hour. */
-    val rows: Int = 14
+data class GridConfig(
+    val startDateMillis: Long, 
+    val endDateMillis: Long,
+    val startHour: Int = 8,
+    val endHour: Int = 22
+) {
+    /** Time slots: one row per hour. */
+    val rows: Int = (endHour - startHour).coerceAtLeast(1)
     
     /** Calculate columns based on the date range, min 1 column. */
     val cols: Int = run {
@@ -89,7 +111,10 @@ data class GridConfig(val startDateMillis: Long, val endDateMillis: Long) {
         }
     }
 
-    val hourLabels: List<String> = (8..21).map { h -> "%02d:00".format(h) }
+    val hourLabels: List<String> = (startHour until endHour).map { h -> 
+        val displayHour = if (h >= 24) h - 24 else h
+        "%02d:00".format(displayHour)
+    }
 
     /** Converts a (row, col) pair to a flat cell index. */
     fun cellIndex(row: Int, col: Int): Int = row * cols + col

@@ -48,6 +48,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -387,12 +388,14 @@ private fun AvailabilityGrid(
                                         modifier = Modifier
                                             .width(cellWidth)
                                             .fillMaxHeight()
+                                            .padding(1.5.dp)
                                             .graphicsLayer {
                                                 if (isSelected) {
                                                     scaleX = 1.05f
                                                     scaleY = 1.05f
                                                 }
                                             }
+                                            .clip(RoundedCornerShape(6.dp))
                                             .background(
                                                 when {
                                                     isRestricted -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
@@ -419,7 +422,6 @@ private fun AvailabilityGrid(
                                                     }
                                                 } else Modifier
                                             )
-                                            .border(width = 0.5.dp, color = outlineColor.copy(alpha = 0.2f))
                                     )
                                 }
                             }

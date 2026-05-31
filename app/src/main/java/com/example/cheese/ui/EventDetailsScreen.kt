@@ -80,24 +80,16 @@ fun EventDetailsScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    IconButton(onClick = onEditChoice) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit Choice")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = onEditChoice,
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            ) {
-                Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Edit, contentDescription = "Edit Choice")
-                    Spacer(Modifier.width(8.dp))
-                    Text("Edit Final Choice", fontWeight = FontWeight.Bold)
-                }
-            }
         }
     ) { innerPadding ->
         Column(

@@ -35,6 +35,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
@@ -47,6 +48,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -69,6 +71,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cheese.ui.theme.CuratedParticipantColors
 import com.example.cheese.viewmodel.ScheduleViewModel
+import com.example.cheese.data.DateOffset
+import com.example.cheese.data.EventTemplate
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -91,6 +95,7 @@ fun OrganizerScreen(
     val haptic = LocalHapticFeedback.current
 
     var inviteeInput by remember { mutableStateOf("") }
+    var saveAsTemplate by remember { mutableStateOf(false) }
 
     val isEventNameValid = eventRequest.eventName.isNotBlank()
     val isDateRangeValid = eventRequest.startDateMillis > 0L && eventRequest.endDateMillis > 0L
@@ -184,6 +189,55 @@ fun OrganizerScreen(
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
 
+                    val today = remember { LocalDate.now(ZoneOffset.UTC).toUtcMillis() }
+                    val tomorrow = remember { LocalDate.now(ZoneOffset.UTC).plusDays(1).toUtcMillis() }
+                    val weekendStart = remember {
+                        val t = LocalDate.now(ZoneOffset.UTC)
+                        if (t.dayOfWeek == java.time.DayOfWeek.SUNDAY || t.dayOfWeek == java.time.DayOfWeek.SATURDAY) {
+                            t.with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.SATURDAY)).toUtcMillis()
+                        } else {
+                            t.with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.SATURDAY)).toUtcMillis()
+                        }
+                    }
+                    val weekendEnd = remember {
+                        val t = LocalDate.now(ZoneOffset.UTC)
+                        if (t.dayOfWeek == java.time.DayOfWeek.SUNDAY) {
+                            t.plusDays(7).toUtcMillis()
+                        } else if (t.dayOfWeek == java.time.DayOfWeek.SATURDAY) {
+                            t.plusDays(1).toUtcMillis()
+                        } else {
+                            t.with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.SUNDAY)).toUtcMillis()
+                        }
+                    }
+                    
+                    val weekdaysStart = remember {
+                        val t = LocalDate.now(ZoneOffset.UTC)
+                        if (t.dayOfWeek == java.time.DayOfWeek.FRIDAY || t.dayOfWeek == java.time.DayOfWeek.SATURDAY || t.dayOfWeek == java.time.DayOfWeek.SUNDAY) {
+                            t.with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.MONDAY)).toUtcMillis()
+                        } else {
+                            t.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)).toUtcMillis()
+                        }
+                    }
+                    val weekdaysEnd = remember {
+                        val t = LocalDate.now(ZoneOffset.UTC)
+                        if (t.dayOfWeek == java.time.DayOfWeek.FRIDAY || t.dayOfWeek == java.time.DayOfWeek.SATURDAY || t.dayOfWeek == java.time.DayOfWeek.SUNDAY) {
+                            t.with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.FRIDAY)).toUtcMillis()
+                        } else {
+                            t.with(java.time.temporal.TemporalAdjusters.nextOrSame(java.time.DayOfWeek.FRIDAY)).toUtcMillis()
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()), 
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SuggestionChip(onClick = { viewModel.updateDateRange(today, today) }, label = { Text("Today") })
+                        SuggestionChip(onClick = { viewModel.updateDateRange(tomorrow, tomorrow) }, label = { Text("Tomorrow") })
+                        SuggestionChip(onClick = { viewModel.updateDateRange(weekdaysStart, weekdaysEnd) }, label = { Text("Weekdays") })
+                        SuggestionChip(onClick = { viewModel.updateDateRange(weekendStart, weekendEnd) }, label = { Text("Weekend") })
+                    }
+                    Spacer(Modifier.height(8.dp))
+
                     // Horizontal-swipe calendar. A horizontal swipe pages between
                     // months; a vertical swipe falls through to the form's
                     // verticalScroll. This is the clean separation that the old M3
@@ -193,8 +247,8 @@ fun OrganizerScreen(
                         startMillis = eventRequest.startDateMillis,
                         endMillis = eventRequest.endDateMillis,
                         onStartSelected = { start ->
-                            // Begin a new range: set the anchor and clear any old end.
-                            viewModel.updateDateRange(start, 0L)
+                            // Begin a new range: set both anchor and end so a single day is valid immediately.
+                            viewModel.updateDateRange(start, start)
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         },
                         onRangeSelected = { start, end ->
@@ -320,8 +374,27 @@ fun OrganizerScreen(
 
             Spacer(Modifier.height(8.dp))
 
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Save as Reusable Template", 
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(checked = saveAsTemplate, onCheckedChange = { saveAsTemplate = it })
+            }
+
             Button(
                 onClick = {
+                    if (saveAsTemplate) {
+                        viewModel.saveTemplate(
+                            EventTemplate(
+                                emoji = eventRequest.eventEmoji,
+                                name = eventRequest.eventName,
+                                dateOffset = DateOffset.CUSTOM
+                            )
+                        )
+                    }
                     scope.launch {
                         snackbarHostState.showSnackbar("Group Request Sent")
                     }
@@ -448,12 +521,13 @@ private fun HorizontalMonthCalendar(
                 onDayClick = { date ->
                     val tapped = date.toUtcMillis()
                     when {
-                        // No anchor, or a complete range exists → start a new range.
-                        startDate == null || endDate != null -> onStartSelected(tapped)
-                        // Tapped before the current anchor → re-anchor.
-                        date.isBefore(startDate) -> onStartSelected(tapped)
-                        // Otherwise close the range (single-day ranges allowed).
-                        else -> onRangeSelected(startDate.toUtcMillis(), tapped)
+                        startDate == null -> onStartSelected(tapped)
+                        startDate == endDate -> {
+                            if (date.isBefore(startDate)) onStartSelected(tapped)
+                            else if (date.isAfter(startDate)) onRangeSelected(startDate.toUtcMillis(), tapped)
+                            else onStartSelected(tapped)
+                        }
+                        else -> onStartSelected(tapped)
                     }
                 }
             )

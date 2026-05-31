@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -43,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cheese.data.EventState
+import com.example.cheese.data.EventTemplate
 import com.example.cheese.viewmodel.ScheduleViewModel
 
 /**
@@ -58,6 +61,7 @@ fun DashboardScreen(
     onOpenEvent: (String) -> Unit
 ) {
     val events by viewModel.events.collectAsState()
+    val templates by viewModel.templates.collectAsState()
 
     Scaffold(
         topBar = {
@@ -82,38 +86,114 @@ fun DashboardScreen(
             }
         }
     ) { innerPadding ->
-        if (events.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 80.dp)
+        ) {
+            item {
                 Text(
-                    text = "No events scheduled.\nTap the + button to create one.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    text = "Quick Create",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
+                )
+                LazyRow(
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(templates, key = { it.id }) { template ->
+                        TemplateCard(template) {
+                            viewModel.createFromTemplate(template)
+                            onCreateNewEvent()
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = "Upcoming Events",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
                 )
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(events, key = { it.request.id }) { eventState ->
-                    EventCard(
-                        eventState = eventState,
-                        onDelete = { viewModel.deleteEvent(eventState.request.id) },
-                        onClick = {
-                            viewModel.selectEvent(eventState.request.id)
-                            onOpenEvent(eventState.request.id)
-                        }
-                    )
+
+            if (events.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No events scheduled.\nTap a template or the + button.",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
                 }
+            } else {
+                items(events, key = { it.request.id }) { eventState ->
+                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                        EventCard(
+                            eventState = eventState,
+                            onDelete = { viewModel.deleteEvent(eventState.request.id) },
+                            onClick = {
+                                viewModel.selectEvent(eventState.request.id)
+                                onOpenEvent(eventState.request.id)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TemplateCard(template: EventTemplate, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .width(140.dp)
+            .height(140.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+        onClick = onClick
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp).fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(MaterialTheme.colorScheme.surface, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(text = template.emoji, fontSize = 24.sp)
+            }
+            Column {
+                Text(
+                    text = template.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    maxLines = 1
+                )
+                Text(
+                    text = template.dateOffset.label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+                    maxLines = 2
+                )
             }
         }
     }
@@ -201,7 +281,9 @@ private fun EventCard(
                         if (finalIndex != null) {
                             val config = com.example.cheese.data.GridConfig(
                                 eventState.request.startDateMillis,
-                                eventState.request.endDateMillis
+                                eventState.request.endDateMillis,
+                                eventState.request.startHour,
+                                eventState.request.endHour
                             )
                             val dayStr = config.cellToDay(finalIndex)
                             val hourStr = config.cellToHour(finalIndex)

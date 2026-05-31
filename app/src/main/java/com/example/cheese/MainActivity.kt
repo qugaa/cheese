@@ -68,11 +68,12 @@ fun CheeseApp() {
                     navController.navigate("organizer")
                 },
                 onOpenEvent = { eventId ->
-                    // For this refactor, we simplify: opening an existing event
-                    // checks if all participants submitted. If yes -> resolution, else -> participant.
                     val state = scheduleViewModel.events.value.find { it.request.id == eventId }
                     if (state != null) {
-                        if (state.responses.size >= state.request.invitees.size && state.request.invitees.isNotEmpty()) {
+                        val isFinalized = state.finalCellIndex != null
+                        val isComplete = state.responses.size >= state.request.invitees.size && state.request.invitees.isNotEmpty()
+                        
+                        if (isFinalized || isComplete) {
                             navController.navigate("resolution")
                         } else {
                             navController.navigate("participant")
@@ -125,6 +126,15 @@ fun CheeseApp() {
         composable("resolution") {
             ResolutionScreen(
                 viewModel = scheduleViewModel,
+                onEditEvent = {
+                    val currentId = scheduleViewModel.currentEventId.value
+                    if (currentId != null) {
+                        scheduleViewModel.editEvent(currentId)
+                        navController.navigate("organizer") {
+                            popUpTo("dashboard")
+                        }
+                    }
+                },
                 onBack = {
                     navController.navigate("dashboard") {
                         popUpTo("dashboard") { inclusive = true }

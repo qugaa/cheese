@@ -26,9 +26,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -80,6 +84,7 @@ private fun heatColor(ratio: Float): Color {
 @Composable
 fun ResolutionScreen(
     viewModel: ScheduleViewModel,
+    onEditEvent: () -> Unit,
     onBack: () -> Unit
 ) {
     val currentEventId by viewModel.currentEventId.collectAsState()
@@ -109,6 +114,11 @@ fun ResolutionScreen(
             TopAppBar(
                 title = {
                     Text("Final Consensus — ${eventRequest.eventName}")
+                },
+                actions = {
+                    IconButton(onClick = onEditEvent) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit Event Details")
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
@@ -277,107 +287,111 @@ private fun HeatmapGrid(
     )
 
     BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = labelColWidth, end = 4.dp)
-            .horizontalScroll(rememberScrollState())
+        modifier = Modifier.fillMaxWidth()
     ) {
-        val cellWidth: Dp = maxOf(maxWidth / 7, 60.dp)
+        val cols = gridConfig.cols.coerceAtLeast(1)
+        val cellWidth: Dp = maxOf((maxWidth - labelColWidth) / cols, 56.dp)
 
-        Column(modifier = Modifier.width(cellWidth * gridConfig.cols)) {
-
-            // Day headers
-            Row(modifier = Modifier.fillMaxWidth()) {
-                gridConfig.dayLabels.forEach { day ->
-                    Text(
-                        text = day,
-                        modifier = Modifier.width(cellWidth),
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1
-                    )
+        Row(modifier = Modifier.fillMaxWidth()) {
+            // Hour label column
+            Column(
+                modifier = Modifier
+                    .width(labelColWidth)
+                    .padding(top = 18.dp) // Adjust based on Day header height
+            ) {
+                gridConfig.hourLabels.forEach { label ->
+                    Box(
+                        modifier = Modifier
+                            .height(cellHeight)
+                            .width(labelColWidth),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        Text(
+                            text = label,
+                            fontSize = 9.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
+                    }
                 }
             }
 
-            // Heat cells
-            gridConfig.hourLabels.forEachIndexed { rowIdx, _ ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(cellHeight)
-                ) {
-                    repeat(gridConfig.cols) { colIdx ->
-                        val cellIndex = gridConfig.cellIndex(rowIdx, colIdx)
-                        val count = heatmap[cellIndex] ?: 0
-                        val safeTotal = totalParticipants.coerceAtLeast(1)
-                        val ratio = count.toFloat() / safeTotal
-                        val isOptimal = cellIndex == optimalCell
-                        val isSelected = cellIndex == selectedCell
+            // Grid column
+            Column(
+                modifier = Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .width(cellWidth * cols)
+            ) {
+                // Day headers
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    gridConfig.dayLabels.forEach { day ->
+                        Text(
+                            text = day,
+                            modifier = Modifier.width(cellWidth),
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1
+                        )
+                    }
+                }
 
-                        val borderWidth = when {
-                            isOptimal -> pulseWidth.dp
-                            isSelected -> 2.dp
-                            else -> 0.5.dp
-                        }
-                        val tertiaryColor = MaterialTheme.colorScheme.tertiary
-                        val outlineColor = MaterialTheme.colorScheme.outline
-                        val borderColor = when {
-                            isOptimal -> tertiaryColor
-                            isSelected -> tertiaryColor.copy(alpha = 0.7f)
-                            else -> outlineColor.copy(alpha = 0.2f)
-                        }
+                // Heat cells
+                gridConfig.hourLabels.forEachIndexed { rowIdx, _ ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(cellHeight)
+                    ) {
+                        repeat(gridConfig.cols) { colIdx ->
+                            val cellIndex = gridConfig.cellIndex(rowIdx, colIdx)
+                            val count = heatmap[cellIndex] ?: 0
+                            val safeTotal = totalParticipants.coerceAtLeast(1)
+                            val ratio = count.toFloat() / safeTotal
+                            val isOptimal = cellIndex == optimalCell
+                            val isSelected = cellIndex == selectedCell
 
-                        Box(
-                            modifier = Modifier
-                                .width(cellWidth)
-                                .fillMaxHeight()
-                                .background(
-                                    if (count > 0) heatColor(ratio)
-                                    else MaterialTheme.colorScheme.surfaceVariant
-                                )
-                                .border(
-                                    width = borderWidth,
-                                    color = borderColor,
-                                    shape = if (isOptimal) RoundedCornerShape(4.dp) else RoundedCornerShape(0.dp)
-                                )
-                                .clickable { if (count > 0) onCellTapped(cellIndex) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (count > 0) {
-                                Text(
-                                    text = "$count",
-                                    fontSize = 9.sp,
-                                    color = if (ratio > 0.5f) Color.White else MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.Bold
-                                )
+                            val borderWidth = when {
+                                isOptimal -> pulseWidth.dp
+                                isSelected -> 2.dp
+                                else -> 0.5.dp
+                            }
+                            val tertiaryColor = MaterialTheme.colorScheme.tertiary
+                            val outlineColor = MaterialTheme.colorScheme.outline
+                            val borderColor = when {
+                                isOptimal -> tertiaryColor
+                                isSelected -> tertiaryColor.copy(alpha = 0.7f)
+                                else -> outlineColor.copy(alpha = 0.2f)
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .width(cellWidth)
+                                    .fillMaxHeight()
+                                    .background(
+                                        if (count > 0) heatColor(ratio)
+                                        else MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                    .border(
+                                        width = borderWidth,
+                                        color = borderColor,
+                                        shape = if (isOptimal) RoundedCornerShape(4.dp) else RoundedCornerShape(0.dp)
+                                    )
+                                    .clickable { if (count > 0) onCellTapped(cellIndex) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (count > 0) {
+                                    Text(
+                                        text = "$count",
+                                        fontSize = 9.sp,
+                                        color = if (ratio > 0.5f) Color.White else MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }
                 }
-            }
-        }
-    }
-
-    // Hour label column
-    Column(
-        modifier = Modifier
-            .width(labelColWidth)
-            .padding(top = 20.dp)
-    ) {
-        gridConfig.hourLabels.forEach { label ->
-            Box(
-                modifier = Modifier
-                    .height(cellHeight)
-                    .width(labelColWidth),
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                Text(
-                    text = label,
-                    fontSize = 9.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(end = 4.dp)
-                )
             }
         }
     }

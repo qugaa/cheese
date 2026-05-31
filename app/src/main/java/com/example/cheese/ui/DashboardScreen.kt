@@ -196,13 +196,28 @@ private fun EventCard(
                         
                         val responded = eventState.responses.size
                         val total = eventState.request.invitees.size
-                        val finalizedText = if (eventState.finalCellIndex != null) " • Finalized" else ""
+                        val finalIndex = eventState.finalCellIndex
                         
-                        Text(
-                            text = "$responded / $total responded$finalizedText",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        if (finalIndex != null) {
+                            val config = com.example.cheese.data.GridConfig(
+                                eventState.request.startDateMillis,
+                                eventState.request.endDateMillis
+                            )
+                            val dayStr = config.cellToDay(finalIndex)
+                            val hourStr = config.cellToHour(finalIndex)
+                            Text(
+                                text = "$dayStr, $hourStr",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        } else {
+                            Text(
+                                text = "$responded / $total responded",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }

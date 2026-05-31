@@ -109,7 +109,7 @@ fun ParticipantScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Share Your Available Times") },
+                title = { Text(if (isOrganizer) "Set Possible Time Options" else "Share Your Available Times") },
                 actions = {
                     if (isOrganizer) {
                         IconButton(onClick = onEditEvent) {
@@ -147,19 +147,21 @@ fun ParticipantScreen(
                             Text("Previous")
                         }
                     }
+                    val isEmpty = draftAvailability.isEmpty()
                     Button(
                         onClick = {
                             scope.launch {
-                                snackbarHostState.showSnackbar("Availability submitted for $participantName")
+                                snackbarHostState.showSnackbar(if (isEmpty && !isOrganizer) "Marked as not available" else "Availability submitted for $participantName")
                             }
                             viewModel.submitAvailability()
                             onSubmitted()
                         },
                         modifier = Modifier.weight(if (participantIndex > 0) 2f else 1f),
-                        enabled = draftAvailability.isNotEmpty(),
+                        enabled = if (isOrganizer) !isEmpty else true,
+                        colors = if (!isOrganizer && isEmpty) androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else androidx.compose.material3.ButtonDefaults.buttonColors(),
                         shape = RoundedCornerShape(28.dp)
                     ) {
-                        Text("Submit Availability")
+                        Text(if (!isOrganizer && isEmpty) "Not Available" else "Submit Availability")
                     }
                 }
             }
@@ -393,12 +395,6 @@ private fun AvailabilityGrid(
                                             .width(cellWidth)
                                             .fillMaxHeight()
                                             .padding(1.5.dp)
-                                            .graphicsLayer {
-                                                if (isSelected) {
-                                                    scaleX = 1.05f
-                                                    scaleY = 1.05f
-                                                }
-                                            }
                                             .clip(RoundedCornerShape(6.dp))
                                             .background(
                                                 when {

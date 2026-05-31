@@ -395,10 +395,6 @@ fun OrganizerScreen(
                             onDone = {
                                 if (inviteeInput.isNotBlank()) {
                                     viewModel.addInvitee(inviteeInput)
-                                    val newInvitee = viewModel.eventRequest.value.invitees.lastOrNull { it.name == inviteeInput }
-                                    if (newInvitee != null) {
-                                        viewModel.addFriend(newInvitee.name, newInvitee.colorIndex)
-                                    }
                                     inviteeInput = ""
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 }
@@ -481,6 +477,16 @@ private fun HorizontalMonthCalendar(
 
     val startDate = remember(startMillis) { if (startMillis > 0L) startMillis.toUtcLocalDate() else null }
     val endDate = remember(endMillis) { if (endMillis > 0L) endMillis.toUtcLocalDate() else null }
+
+    androidx.compose.runtime.LaunchedEffect(startDate) {
+        if (startDate != null) {
+            val startMonth = YearMonth.from(startDate)
+            val diff = java.time.temporal.ChronoUnit.MONTHS.between(baseMonth, startMonth).toInt()
+            if (diff in 0 until CALENDAR_PAGE_COUNT) {
+                pagerState.animateScrollToPage(diff)
+            }
+        }
+    }
 
     val visibleMonth = baseMonth.plusMonths(pagerState.currentPage.toLong())
     val monthLabel =

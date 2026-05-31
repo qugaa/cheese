@@ -188,13 +188,13 @@ fun EventDetailsScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(8.dp),
-                                color = if (isAvailable) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceVariant,
+                                color = if (isAvailable) androidx.compose.ui.graphics.Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
                                 trackColor = MaterialTheme.colorScheme.surfaceVariant
                             )
                             Text(
                                 text = if (isAvailable) "Available" else "Unavailable",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (isAvailable) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = if (isAvailable) androidx.compose.ui.graphics.Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }

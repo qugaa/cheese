@@ -179,6 +179,21 @@ class ScheduleViewModel : ViewModel() {
         _draftAvailability.update { it + index }
     }
 
+    private fun loadDraftForCurrentParticipant() {
+        val invitee = currentInvitee() ?: return
+        val eventId = _currentEventId.value ?: return
+        val state = _events.value.find { it.request.id == eventId }
+        val existingResponse = state?.responses?.get(invitee.name)
+        _draftAvailability.value = existingResponse?.availability ?: emptySet()
+    }
+
+    fun previousParticipant() {
+        if (_currentParticipantIndex.value > 0) {
+            _currentParticipantIndex.update { it - 1 }
+            loadDraftForCurrentParticipant()
+        }
+    }
+
     fun submitAvailability() {
         val invitee = currentInvitee() ?: return
         val name = invitee.name
@@ -207,10 +222,12 @@ class ScheduleViewModel : ViewModel() {
             }
         }
 
-        _draftAvailability.value = emptySet()
         val total = totalParticipants()
         if (_currentParticipantIndex.value < total - 1) {
             _currentParticipantIndex.update { it + 1 }
+            loadDraftForCurrentParticipant()
+        } else {
+            _draftAvailability.value = emptySet()
         }
     }
 

@@ -123,8 +123,7 @@ fun OrganizerScreen(
             // ── Card 1: Event Context & Emoji ────────────────────────────────
             OutlinedCard(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .animateContentSize(),
+                    .fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Column(
@@ -174,8 +173,7 @@ fun OrganizerScreen(
             // ── Card 2: Temporal Boundaries ──────────────────────────────────
             ElevatedCard(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .animateContentSize(),
+                    .fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -210,8 +208,7 @@ fun OrganizerScreen(
             // ── Card 3: Invitee Management & Color Customization ─────────────
             OutlinedCard(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .animateContentSize(),
+                    .fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Column(

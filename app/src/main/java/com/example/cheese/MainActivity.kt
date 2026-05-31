@@ -10,6 +10,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.cheese.ui.DashboardScreen
+import com.example.cheese.ui.EventDetailsScreen
 import com.example.cheese.ui.OrganizerScreen
 import com.example.cheese.ui.ParticipantScreen
 import com.example.cheese.ui.ResolutionScreen
@@ -70,10 +71,13 @@ fun CheeseApp() {
                 onOpenEvent = { eventId ->
                     val state = scheduleViewModel.events.value.find { it.request.id == eventId }
                     if (state != null) {
+                        scheduleViewModel.selectEvent(eventId)
                         val isFinalized = state.finalCellIndex != null
                         val isComplete = state.responses.size >= state.request.invitees.size && state.request.invitees.isNotEmpty()
                         
-                        if (isFinalized || isComplete) {
+                        if (isFinalized) {
+                            navController.navigate("event_details")
+                        } else if (isComplete) {
                             navController.navigate("resolution")
                         } else {
                             navController.navigate("participant")
@@ -134,6 +138,26 @@ fun CheeseApp() {
                             popUpTo("dashboard")
                         }
                     }
+                },
+                onConfirm = {
+                    navController.navigate("event_details") {
+                        popUpTo("dashboard")
+                    }
+                },
+                onBack = {
+                    navController.navigate("dashboard") {
+                        popUpTo("dashboard") { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        // ── View 4: Event Details ─────────────────────────────────────────────
+        composable("event_details") {
+            EventDetailsScreen(
+                viewModel = scheduleViewModel,
+                onEditChoice = {
+                    navController.navigate("resolution")
                 },
                 onBack = {
                     navController.navigate("dashboard") {

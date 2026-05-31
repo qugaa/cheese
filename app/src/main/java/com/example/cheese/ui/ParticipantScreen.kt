@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -125,21 +126,36 @@ fun ParticipantScreen(
                     .animateContentSize()
                     .navigationBarsPadding()
             ) {
-                Button(
-                    onClick = {
-                        scope.launch {
-                            snackbarHostState.showSnackbar("Availability submitted for $participantName")
-                        }
-                        viewModel.submitAvailability()
-                        onSubmitted()
-                    },
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    enabled = draftAvailability.isNotEmpty(),
-                    shape = RoundedCornerShape(28.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Submit Availability")
+                    if (participantIndex > 0) {
+                        OutlinedButton(
+                            onClick = { viewModel.previousParticipant() },
+                            shape = RoundedCornerShape(28.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Previous")
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Availability submitted for $participantName")
+                            }
+                            viewModel.submitAvailability()
+                            onSubmitted()
+                        },
+                        modifier = Modifier.weight(if (participantIndex > 0) 2f else 1f),
+                        enabled = draftAvailability.isNotEmpty(),
+                        shape = RoundedCornerShape(28.dp)
+                    ) {
+                        Text("Submit Availability")
+                    }
                 }
             }
         }

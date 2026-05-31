@@ -85,6 +85,7 @@ private fun heatColor(ratio: Float): Color {
 fun ResolutionScreen(
     viewModel: ScheduleViewModel,
     onEditEvent: () -> Unit,
+    onConfirm: () -> Unit,
     onBack: () -> Unit
 ) {
     val currentEventId by viewModel.currentEventId.collectAsState()
@@ -254,6 +255,10 @@ fun ResolutionScreen(
                 responses = responses,
                 totalParticipants = totalParticipants,
                 heatmap = heatmap,
+                onConfirm = {
+                    showBottomSheet = false
+                    onConfirm()
+                },
                 onDismiss = {
                     showBottomSheet = false
                     onBack()
@@ -405,6 +410,7 @@ private fun FinalSummarySheet(
     responses: Map<String, ParticipantResponse>,
     totalParticipants: Int,
     heatmap: Map<Int, Int>,
+    onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
@@ -513,7 +519,7 @@ private fun FinalSummarySheet(
         Spacer(Modifier.height(8.dp))
 
         Button(
-            onClick = onDismiss,
+            onClick = onConfirm,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(28.dp)
         ) {

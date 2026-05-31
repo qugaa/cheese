@@ -366,7 +366,7 @@ fun OrganizerScreen(
                                         if (isAdded) {
                                             viewModel.removeInvitee(friend.name)
                                         } else {
-                                            viewModel.addInvitee(friend.name)
+                                            viewModel.addInvitee(friend.name, friend.colorIndex)
                                         }
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     },

@@ -72,7 +72,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ParticipantScreen(
     viewModel: ScheduleViewModel,
-    onSubmitted: () -> Unit,
+    onSubmitted: (Boolean) -> Unit,
     onEditEvent: () -> Unit,
     onBackToDashboard: () -> Unit
 ) {
@@ -153,8 +153,9 @@ fun ParticipantScreen(
                             scope.launch {
                                 snackbarHostState.showSnackbar(if (isEmpty && !isOrganizer) "Marked as not available" else "Availability submitted for $participantName")
                             }
+                            val isLast = participantIndex == viewModel.totalParticipants() - 1
                             viewModel.submitAvailability()
-                            onSubmitted()
+                            onSubmitted(isLast)
                         },
                         modifier = Modifier.weight(if (participantIndex > 0) 2f else 1f),
                         enabled = if (isOrganizer) !isEmpty else true,

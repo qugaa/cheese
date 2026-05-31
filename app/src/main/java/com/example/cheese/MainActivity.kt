@@ -125,8 +125,8 @@ fun CheeseApp() {
         composable("participant") {
             ParticipantScreen(
                 viewModel = scheduleViewModel,
-                onSubmitted = {
-                    if (scheduleViewModel.getResponses().size >= scheduleViewModel.totalParticipants()) {
+                onSubmitted = { isLastParticipant ->
+                    if (isLastParticipant) {
                         navController.navigate("resolution") {
                             popUpTo("participant") { inclusive = true }
                         }

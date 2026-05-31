@@ -153,7 +153,7 @@ class ScheduleViewModel : ViewModel() {
 
     // ── Invitee management ────────────────────────────────────────────────────
 
-    fun addInvitee(name: String) {
+    fun addInvitee(name: String, providedColorIndex: Int? = null) {
         val trimmed = name.trim()
         if (trimmed.isBlank()) return
         _eventRequest.update { current ->
@@ -161,11 +161,7 @@ class ScheduleViewModel : ViewModel() {
 
             // First invitee is automatically the host
             val isHost = current.invitees.isEmpty()
-            // Assign a color from the unused pool. The existing invitees ARE the
-            // tracking set, so removals automatically free a color back up and we
-            // never desync. Once every curated color is in use, the pool wraps and
-            // we sample from the full palette again.
-            val colorIndex = nextUniqueColorIndex(current.invitees.map { it.colorIndex })
+            val colorIndex = providedColorIndex ?: nextUniqueColorIndex(current.invitees.map { it.colorIndex })
             val newInvitee = Invitee(name = trimmed, colorIndex = colorIndex, isHost = isHost)
 
             current.copy(invitees = current.invitees + newInvitee)

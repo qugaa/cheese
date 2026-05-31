@@ -2,6 +2,7 @@ package com.example.cheese.ui
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +48,20 @@ import androidx.compose.ui.unit.sp
 import com.example.cheese.data.EventState
 import com.example.cheese.data.EventTemplate
 import com.example.cheese.viewmodel.ScheduleViewModel
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.FilterChip
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import com.example.cheese.ui.theme.CuratedParticipantColors
 
 /**
  * Root Landing Destination for the Application.
@@ -58,6 +73,7 @@ import com.example.cheese.viewmodel.ScheduleViewModel
 fun DashboardScreen(
     viewModel: ScheduleViewModel,
     onCreateNewEvent: () -> Unit,
+    onQuickCreate: () -> Unit,
     onOpenEvent: (String) -> Unit
 ) {
     val events by viewModel.events.collectAsState()
@@ -107,7 +123,7 @@ fun DashboardScreen(
                     items(templates, key = { it.id }) { template ->
                         TemplateCard(template) {
                             viewModel.createFromTemplate(template)
-                            onCreateNewEvent()
+                            onQuickCreate()
                         }
                     }
                 }
@@ -152,6 +168,13 @@ fun DashboardScreen(
                         )
                     }
                 }
+            }
+
+            item {
+                Spacer(Modifier.height(24.dp))
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                Spacer(Modifier.height(16.dp))
+                FriendsManagementSection(viewModel)
             }
         }
     }
@@ -305,4 +328,78 @@ private fun EventCard(
             }
         }
     )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FriendsManagementSection(viewModel: ScheduleViewModel) {
+    val friends by viewModel.friends.collectAsState()
+    val haptic = LocalHapticFeedback.current
+    var newFriendName by remember { mutableStateOf("") }
+    
+    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        Text(
+            text = "Saved Friends",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            friends.forEach { friend ->
+                InputChip(
+                    selected = true,
+                    onClick = { },
+                    label = { Text(friend.name) },
+                    leadingIcon = {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .background(CuratedParticipantColors[friend.colorIndex], CircleShape)
+                        )
+                    },
+                    trailingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Remove",
+                            modifier = Modifier.clickable {
+                                viewModel.removeFriend(friend.name)
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                        )
+                    }
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = newFriendName,
+                onValueChange = { newFriendName = it },
+                placeholder = { Text("Add a friend...") },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            IconButton(
+                onClick = {
+                    if (newFriendName.isNotBlank()) {
+                        viewModel.addFriend(newFriendName, CuratedParticipantColors.indices.random())
+                        newFriendName = ""
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
+                },
+                colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.primary)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Add Friend", tint = MaterialTheme.colorScheme.onPrimary)
+            }
+        }
+    }
 }

@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -40,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.InputChipDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
@@ -90,6 +93,7 @@ fun OrganizerScreen(
     onRequestSent: () -> Unit
 ) {
     val eventRequest by viewModel.eventRequest.collectAsState()
+    val friends by viewModel.friends.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
@@ -351,6 +355,34 @@ fun OrganizerScreen(
                         }
                     }
 
+                    if (friends.isNotEmpty()) {
+                        Text("Saved Friends", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(friends, key = { it.id }) { friend ->
+                                val isAdded = eventRequest.invitees.any { it.name == friend.name }
+                                FilterChip(
+                                    selected = isAdded,
+                                    onClick = {
+                                        if (isAdded) {
+                                            viewModel.removeInvitee(friend.name)
+                                        } else {
+                                            viewModel.addInvitee(friend.name)
+                                        }
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    },
+                                    label = { Text(friend.name) },
+                                    leadingIcon = {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(12.dp)
+                                                .background(CuratedParticipantColors[friend.colorIndex], CircleShape)
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+
                     OutlinedTextField(
                         value = inviteeInput,
                         onValueChange = { inviteeInput = it },
@@ -363,6 +395,10 @@ fun OrganizerScreen(
                             onDone = {
                                 if (inviteeInput.isNotBlank()) {
                                     viewModel.addInvitee(inviteeInput)
+                                    val newInvitee = viewModel.eventRequest.value.invitees.lastOrNull { it.name == inviteeInput }
+                                    if (newInvitee != null) {
+                                        viewModel.addFriend(newInvitee.name, newInvitee.colorIndex)
+                                    }
                                     inviteeInput = ""
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 }

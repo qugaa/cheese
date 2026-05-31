@@ -469,9 +469,12 @@ private fun FinalSummarySheet(
             color = MaterialTheme.colorScheme.primary
         )
 
+        val gridConfig = GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis, eventRequest.startHour, eventRequest.endHour)
+        val selectedTimestamp = selectedCell?.let { gridConfig.cellToTimestamp(it) }
+
         eventRequest.invitees.forEach { invitee ->
             val response = responses[invitee.name]
-            val isAvailable = selectedCell != null && response?.availability?.contains(selectedCell) == true
+            val isAvailable = selectedTimestamp != null && response?.availability?.contains(selectedTimestamp) == true
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

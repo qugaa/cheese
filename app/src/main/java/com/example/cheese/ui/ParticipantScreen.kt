@@ -95,8 +95,12 @@ fun ParticipantScreen(
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     
-    val gridConfig = remember(eventRequest.startDateMillis, eventRequest.endDateMillis) {
-        GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis)
+    val gridConfig = remember(eventRequest.startDateMillis, eventRequest.endDateMillis, eventRequest.startHour, eventRequest.endHour) {
+        GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis, eventRequest.startHour, eventRequest.endHour)
+    }
+
+    val restrictedCellsInts = remember(organizerRestrictions, gridConfig) {
+        organizerRestrictions.mapNotNull { gridConfig.timestampToCell(it) }.toSet()
     }
 
     // Placing the CTA in the bottomBar slot of the Scaffold ensures that the
@@ -212,7 +216,7 @@ fun ParticipantScreen(
                 AvailabilityGrid(
                     gridConfig = gridConfig,
                     selectedCells = draftAvailability,
-                    restrictedCells = if (isOrganizer) emptySet() else organizerRestrictions,
+                    restrictedCells = if (isOrganizer) emptySet() else restrictedCellsInts,
                     participantColor = participantColor,
                     onCellToggled = { index ->
                         viewModel.toggleCell(index)

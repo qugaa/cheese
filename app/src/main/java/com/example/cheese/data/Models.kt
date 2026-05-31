@@ -20,6 +20,12 @@ data class EventTemplate(
     val dateOffset: DateOffset
 )
 
+data class Friend(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val colorIndex: Int
+)
+
 /**
  * A participant invited to the event.
  *
@@ -57,13 +63,13 @@ data class EventRequest(
 /**
  * A single participant's availability mapped across the time grid.
  *
- * [availability] is a Set of cell indices (row * COLS + col) that the
- * participant painted as "available" via the drag gesture. Using a Set
- * guarantees O(1) membership checks during heatmap computation.
+ * [availability] is a Set of UTC epoch millis representing the specific hour block.
+ * This ensures that if the organizer changes the grid dimensions (adds/removes days),
+ * the selections stay anchored to their real-world times.
  */
 data class ParticipantResponse(
     val participantName: String,
-    val availability: Set<Int> = emptySet()
+    val availability: Set<Long> = emptySet()
 )
 
 /**
@@ -74,7 +80,7 @@ data class EventState(
     val request: EventRequest,
     val responses: Map<String, ParticipantResponse> = emptyMap(),
     val finalCellIndex: Int? = null,
-    val organizerRestrictions: Set<Int> = emptySet()
+    val organizerRestrictions: Set<Long> = emptySet()
 )
 
 /**
@@ -124,4 +130,27 @@ data class GridConfig(
 
     /** Extracts the hour label from a flat cell index. */
     fun cellToHour(index: Int): String = hourLabels.getOrElse(index / cols) { "?" }
+
+    /** Convert a flat cell index to absolute UTC millis for that hour block. */
+    fun cellToTimestamp(index: Int): Long {
+        val row = index / cols
+        val col = index % cols
+        val hour = startHour + row
+        return startDateMillis + col * 86400000L + hour * 3600000L
+    }
+
+    /** Convert an absolute UTC millis timestamp back to a flat cell index, or null if out of bounds. */
+    fun timestampToCell(timestamp: Long): Int? {
+        val diff = timestamp - startDateMillis
+        if (diff < 0) return null
+        val col = (diff / 86400000L).toInt()
+        if (col >= cols) return null
+        
+        val hourMillis = diff % 86400000L
+        val hour = (hourMillis / 3600000L).toInt()
+        val row = hour - startHour
+        if (row < 0 || row >= rows) return null
+        
+        return cellIndex(row, col)
+    }
 }

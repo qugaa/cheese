@@ -15,6 +15,7 @@ import com.example.cheese.ui.OrganizerScreen
 import com.example.cheese.ui.ParticipantScreen
 import com.example.cheese.ui.ResolutionScreen
 import com.example.cheese.ui.SplashScreen
+import com.example.cheese.ui.QuickCreateScreen
 import com.example.cheese.ui.theme.CheeseTheme
 import com.example.cheese.viewmodel.ScheduleViewModel
 
@@ -68,6 +69,9 @@ fun CheeseApp() {
                 onCreateNewEvent = {
                     navController.navigate("organizer")
                 },
+                onQuickCreate = {
+                    navController.navigate("quick_create")
+                },
                 onOpenEvent = { eventId ->
                     val state = scheduleViewModel.events.value.find { it.request.id == eventId }
                     if (state != null) {
@@ -82,6 +86,25 @@ fun CheeseApp() {
                         } else {
                             navController.navigate("participant")
                         }
+                    }
+                }
+            )
+        }
+
+        // ── Quick Create Flow ─────────────────────────────────────────────────
+        composable("quick_create") {
+            QuickCreateScreen(
+                viewModel = scheduleViewModel,
+                onProceed = {
+                    scheduleViewModel.finalizeEventRequest()
+                    navController.navigate("participant")
+                },
+                onAdvancedSetup = {
+                    navController.navigate("organizer")
+                },
+                onBack = {
+                    navController.navigate("dashboard") {
+                        popUpTo("dashboard") { inclusive = true }
                     }
                 }
             )
@@ -112,6 +135,7 @@ fun CheeseApp() {
                 onEditEvent = {
                     val currentId = scheduleViewModel.currentEventId.value
                     if (currentId != null) {
+                        scheduleViewModel.saveCurrentDraft()
                         scheduleViewModel.editEvent(currentId)
                         navController.navigate("organizer") {
                             popUpTo("dashboard")
@@ -119,6 +143,7 @@ fun CheeseApp() {
                     }
                 },
                 onBackToDashboard = {
+                    scheduleViewModel.saveCurrentDraft()
                     navController.navigate("dashboard") {
                         popUpTo("dashboard") { inclusive = true }
                     }

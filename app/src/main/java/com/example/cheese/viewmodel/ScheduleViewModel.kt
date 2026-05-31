@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import com.example.cheese.data.DateOffset
 import com.example.cheese.data.EventTemplate
+import com.example.cheese.data.Friend
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.DayOfWeek
@@ -27,6 +28,21 @@ class ScheduleViewModel : ViewModel() {
 
     private val _currentEventId = MutableStateFlow<String?>(null)
     val currentEventId: StateFlow<String?> = _currentEventId.asStateFlow()
+
+    private val _friends = MutableStateFlow<List<Friend>>(emptyList())
+    val friends: StateFlow<List<Friend>> = _friends.asStateFlow()
+
+    fun addFriend(name: String, colorIndex: Int) {
+        _friends.update { list -> 
+            if (list.none { it.name == name }) {
+                list + Friend(name = name, colorIndex = colorIndex)
+            } else list
+        }
+    }
+
+    fun removeFriend(name: String) {
+        _friends.update { list -> list.filterNot { it.name == name } }
+    }
 
     fun createNewEvent() {
         val newEvent = EventRequest()
@@ -228,7 +244,12 @@ class ScheduleViewModel : ViewModel() {
         val eventState = getCurrentEventState() ?: return
         
         // Enforce organizer restrictions for non-first participants
-        if (_currentParticipantIndex.value > 0 && index in eventState.organizerRestrictions) return
+        if (_currentParticipantIndex.value > 0) {
+            val request = eventState.request
+            val config = GridConfig(request.startDateMillis, request.endDateMillis, request.startHour, request.endHour)
+            val timestamp = config.cellToTimestamp(index)
+            if (timestamp in eventState.organizerRestrictions) return
+        }
         
         _draftAvailability.update { it + index }
     }
@@ -237,49 +258,50 @@ class ScheduleViewModel : ViewModel() {
         val invitee = currentInvitee() ?: return
         val eventId = _currentEventId.value ?: return
         val state = _events.value.find { it.request.id == eventId }
+        val request = state?.request ?: _eventRequest.value
+        val config = GridConfig(request.startDateMillis, request.endDateMillis, request.startHour, request.endHour)
+        
         val existingResponse = state?.responses?.get(invitee.name)
-        _draftAvailability.value = existingResponse?.availability ?: emptySet()
+        val timestamps = existingResponse?.availability ?: emptySet()
+        
+        _draftAvailability.value = timestamps.mapNotNull { config.timestampToCell(it) }.toSet()
+    }
+
+    fun saveCurrentDraft() {
+        val invitee = currentInvitee() ?: return
+        val eventId = _currentEventId.value ?: return
+        val state = _events.value.find { it.request.id == eventId }
+        val request = state?.request ?: _eventRequest.value
+        val config = GridConfig(request.startDateMillis, request.endDateMillis, request.startHour, request.endHour)
+        
+        val timestamps = _draftAvailability.value.map { config.cellToTimestamp(it) }.toSet()
+        
+        _events.update { list ->
+            list.map { ev ->
+                if (ev.request.id == eventId) {
+                    val updatedResponses = ev.responses + (invitee.name to ParticipantResponse(invitee.name, timestamps))
+                    var updatedRestrictions = ev.organizerRestrictions
+                    if (_currentParticipantIndex.value == 0) {
+                        val allCells = (0 until config.totalCells).toSet()
+                        val restrictedCells = allCells - _draftAvailability.value
+                        updatedRestrictions = restrictedCells.map { config.cellToTimestamp(it) }.toSet()
+                    }
+                    ev.copy(responses = updatedResponses, organizerRestrictions = updatedRestrictions)
+                } else ev
+            }
+        }
     }
 
     fun previousParticipant() {
         if (_currentParticipantIndex.value > 0) {
+            saveCurrentDraft()
             _currentParticipantIndex.update { it - 1 }
             loadDraftForCurrentParticipant()
         }
     }
 
     fun submitAvailability() {
-        val invitee = currentInvitee() ?: return
-        val name = invitee.name
-        val draft = _draftAvailability.value
-        val eventId = _currentEventId.value ?: return
-
-        _events.update { list ->
-            list.map { state ->
-                if (state.request.id == eventId) {
-                    val updatedResponses = state.responses + (name to ParticipantResponse(name, draft))
-                    
-                    var updatedRestrictions = state.organizerRestrictions
-                    if (_currentParticipantIndex.value == 0) {
-                        val gridConfig = GridConfig(
-                            state.request.startDateMillis, 
-                            state.request.endDateMillis,
-                            state.request.startHour,
-                            state.request.endHour
-                        )
-                        val allCells = (0 until gridConfig.totalCells).toSet()
-                        updatedRestrictions = allCells - draft
-                    }
-
-                    state.copy(
-                        responses = updatedResponses,
-                        organizerRestrictions = updatedRestrictions
-                    )
-                } else {
-                    state
-                }
-            }
-        }
+        saveCurrentDraft()
 
         val total = totalParticipants()
         if (_currentParticipantIndex.value < total - 1) {
@@ -304,8 +326,11 @@ class ScheduleViewModel : ViewModel() {
         val state = getCurrentEventState() ?: return emptyMap()
         val counts = IntArray(gridConfig.totalCells)
         for (response in state.responses.values) {
-            for (cellIndex in response.availability) {
-                if (cellIndex in 0 until gridConfig.totalCells) counts[cellIndex]++
+            for (timestamp in response.availability) {
+                val cellIndex = gridConfig.timestampToCell(timestamp)
+                if (cellIndex != null && cellIndex in 0 until gridConfig.totalCells) {
+                    counts[cellIndex]++
+                }
             }
         }
         return counts.mapIndexed { idx, count -> idx to count }

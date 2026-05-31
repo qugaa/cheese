@@ -110,7 +110,7 @@ fun EventDetailsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = "📅 ${eventRequest.eventEmoji} ${eventRequest.eventName.ifBlank { "Untitled" }}",
+                        text = "${eventRequest.eventEmoji} ${eventRequest.eventName.ifBlank { "Untitled" }}",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -150,9 +150,12 @@ fun EventDetailsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    val gridConfig = GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis, eventRequest.startHour, eventRequest.endHour)
+                    val finalTimestamp = finalCellIndex?.let { gridConfig.cellToTimestamp(it) }
+
                     eventRequest.invitees.forEach { invitee ->
                         val response = responses[invitee.name]
-                        val isAvailable = finalCellIndex != null && response?.availability?.contains(finalCellIndex) == true
+                        val isAvailable = finalTimestamp != null && response?.availability?.contains(finalTimestamp) == true
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),

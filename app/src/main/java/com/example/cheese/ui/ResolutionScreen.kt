@@ -1,84 +1,143 @@
 package com.example.cheese.ui
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.cheese.data.EventRequest
 import com.example.cheese.data.GridConfig
-import com.example.cheese.data.MOCK_PARTICIPANTS
+import com.example.cheese.data.ParticipantResponse
 import com.example.cheese.viewmodel.ScheduleViewModel
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
-/**
- * VIEW 3 — Algorithmic Resolution & Finalization
- *
- * HCI rationale:
- * - Color-coded heatmap encodes participant consensus as a perceptual variable
- *   (Bertin's visual variables) — saturation level directly maps to agreement
- *   density, enabling pre-attentive processing without conscious counting.
- * - The selected optimal cell is highlighted with a distinct accent border
- *   (figure-ground principle) to guide the organizer's locus of attention.
- * - ModalBottomSheet for the final summary is a spatially contextual overlay —
- *   it does not fully remove the underlying heatmap from peripheral vision,
- *   maintaining spatial memory while presenting the finalization summary.
- * - "Set Final Event" CTA uses fillMaxWidth() per Fitts' Law.
- */
+private val LightSageGreen = Color(0xFFD5E8D4)
+private val MediumMintGreen = Color(0xFFA5D6A7)
+private val VibrantEmeraldGreen = Color(0xFF4CAF50)
+private val DeepForestGreen = Color(0xFF1B5E20)
+
+private fun heatColor(ratio: Float): Color {
+    return when {
+        ratio <= 0f -> Color.Transparent
+        ratio <= 0.25f -> LightSageGreen
+        ratio <= 0.50f -> MediumMintGreen
+        ratio <= 0.75f -> VibrantEmeraldGreen
+        else -> DeepForestGreen
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ResolutionScreen(
     viewModel: ScheduleViewModel,
+    onEditEvent: () -> Unit,
+    onConfirm: () -> Unit,
     onBack: () -> Unit
 ) {
-    val eventRequest by viewModel.eventRequest.collectAsState()
-    val finalCellIndex by viewModel.finalCellIndex.collectAsState()
-    val responses by viewModel.responses.collectAsState()
+    val currentEventId by viewModel.currentEventId.collectAsState()
+    val events by viewModel.events.collectAsState()
+    
+    val eventState = events.find { it.request.id == currentEventId }
+    val eventRequest = eventState?.request ?: viewModel.eventRequest.collectAsState().value
+    
+    val finalCellIndex = eventState?.finalCellIndex
+    val responses = eventState?.responses ?: emptyMap()
 
-    // Derived heatmap and optimal cell — recomputed on every recomposition
-    // triggered by [responses] changes (snapshot reads propagate correctly).
-    val heatmap = remember(responses) { viewModel.computeHeatmap() }
-    val optimalCell = remember(responses) { viewModel.computeOptimalCell() }
-    val maxCount = heatmap.values.maxOrNull()?.takeIf { it > 0 } ?: 1
+    val gridConfig = remember(eventRequest.startDateMillis, eventRequest.endDateMillis) {
+        GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis)
+    }
+
+    val heatmap = remember(responses) { viewModel.computeHeatmap(gridConfig) }
+    val optimalCell = remember(responses) { viewModel.computeOptimalCell(gridConfig) }
+    val totalParticipants = eventRequest.invitees.size
 
     var showBottomSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    // Track currently selected cell for "Set Final Event" — defaults to optimal.
     var selectedCell by remember(optimalCell) { mutableStateOf(optimalCell) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Availability Summary") },
+                title = {
+                    Text("Final Consensus — ${eventRequest.eventName}")
+                },
+                navigationIcon = {
+                    IconButton(onClick = onEditEvent) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
         }
     ) { innerPadding ->
-
         Column(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
         ) {
-            // ── Stats bar ─────────────────────────────────────────────────────
             Surface(
-                color = MaterialTheme.colorScheme.secondaryContainer,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -89,51 +148,66 @@ fun ResolutionScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = eventRequest.eventName.ifBlank { "Untitled Event" },
+                        text = "${eventRequest.eventEmoji} ${eventRequest.eventName.ifBlank { "Untitled Event" }}",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "${responses.size} / ${MOCK_PARTICIPANTS.size} responded",
+                        text = "${responses.size} / $totalParticipants responded",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            // Legend
+            // Gradient legend
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Low", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
-                // Gradient swatch
-                Row(modifier = Modifier.weight(1f).height(10.dp)) {
-                    for (i in 0..4) {
+                Text("0%", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
+                val legendColors = listOf(
+                    MaterialTheme.colorScheme.surfaceVariant,
+                    LightSageGreen,
+                    MediumMintGreen,
+                    VibrantEmeraldGreen,
+                    DeepForestGreen
+                )
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    legendColors.forEach { color ->
                         Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .background(heatColor(i.toFloat() / 4f))
+                                .background(color, RoundedCornerShape(2.dp))
                         )
                     }
                 }
-                Text("High", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text("100%", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(Modifier.width(8.dp))
                 Box(
                     modifier = Modifier
-                        .size(10.dp)
+                        .size(12.dp)
                         .background(Color.Transparent)
-                        .border(2.dp, MaterialTheme.colorScheme.tertiary, RoundedCornerShape(2.dp))
+                        .border(
+                            2.dp,
+                            MaterialTheme.colorScheme.tertiary,
+                            RoundedCornerShape(2.dp)
+                        )
                 )
                 Text("Optimal", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
             }
 
-            // ── Heatmap grid ──────────────────────────────────────────────────
+            // Heatmap grid with horizontal + vertical scrolling
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -141,125 +215,193 @@ fun ResolutionScreen(
                     .verticalScroll(rememberScrollState())
             ) {
                 HeatmapGrid(
+                    gridConfig = gridConfig,
                     heatmap = heatmap,
-                    maxCount = maxCount,
+                    totalParticipants = totalParticipants,
                     optimalCell = optimalCell,
                     selectedCell = selectedCell,
                     onCellTapped = { selectedCell = it }
                 )
             }
 
-            // ── Primary CTA ───────────────────────────────────────────────────
-            Button(
-                onClick = {
-                    selectedCell?.let { viewModel.setFinalEvent(it) }
-                    showBottomSheet = true
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                enabled = selectedCell != null
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Set Final Event")
+                Button(
+                    onClick = {
+                        selectedCell?.let { viewModel.setFinalEvent(it) }
+                        showBottomSheet = true
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    enabled = selectedCell != null,
+                    shape = RoundedCornerShape(28.dp)
+                ) {
+                    Text("Set Final Event")
+                }
             }
         }
     }
 
-    // ── ModalBottomSheet — Final Summary ──────────────────────────────────────
-    // Non-destructive overlay: the heatmap remains visible behind the sheet,
-    // preserving spatial context for the decision (Locus of Attention principle).
     if (showBottomSheet) {
         ModalBottomSheet(
             onDismissRequest = { showBottomSheet = false },
-            sheetState = sheetState
+            sheetState = sheetState,
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
         ) {
             FinalSummarySheet(
+                gridConfig = gridConfig,
                 eventRequest = eventRequest,
                 selectedCell = selectedCell,
-                totalParticipants = responses.size,
+                responses = responses,
+                totalParticipants = totalParticipants,
                 heatmap = heatmap,
-                maxCount = maxCount,
-                onDismiss = { showBottomSheet = false }
+                onConfirm = {
+                    showBottomSheet = false
+                    onConfirm()
+                },
+                onDismiss = {
+                    showBottomSheet = false
+                    onBack()
+                }
             )
         }
     }
 }
 
-/**
- * Heatmap grid rendering.
- * Each cell is colored by [heatColor] derived from the ratio count/maxCount.
- * Tapping a cell selects it as the proposed final slot (Noun selection).
- */
 @Composable
 private fun HeatmapGrid(
+    gridConfig: GridConfig,
     heatmap: Map<Int, Int>,
-    maxCount: Int,
+    totalParticipants: Int,
     optimalCell: Int?,
     selectedCell: Int?,
     onCellTapped: (Int) -> Unit
 ) {
     val labelColWidth = 48.dp
-    val cellHeight = 36.dp
+    val cellHeight = 40.dp
+
+    val infiniteTransition = rememberInfiniteTransition(label = "optimalPulse")
+    val pulseWidth by infiniteTransition.animateFloat(
+        initialValue = 2f,
+        targetValue = 4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 800),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseBorderWidth"
+    )
 
     BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = labelColWidth, end = 4.dp)
+        modifier = Modifier.fillMaxWidth()
     ) {
-        val cellWidth = maxWidth / GridConfig.COLS
+        val cols = gridConfig.cols.coerceAtLeast(1)
+        val cellWidth: Dp = maxOf((maxWidth - labelColWidth) / cols, 56.dp)
 
-        Column(modifier = Modifier.fillMaxWidth()) {
-
-            // Day headers
-            Row(modifier = Modifier.fillMaxWidth()) {
-                GridConfig.DAY_LABELS.forEach { day ->
-                    Text(
-                        text = day,
-                        modifier = Modifier.width(cellWidth),
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+        Row(modifier = Modifier.fillMaxWidth()) {
+            // Hour label column
+            Column(
+                modifier = Modifier
+                    .width(labelColWidth)
+                    .padding(top = 18.dp) // Adjust based on Day header height
+            ) {
+                gridConfig.hourLabels.forEach { label ->
+                    Box(
+                        modifier = Modifier
+                            .height(cellHeight)
+                            .width(labelColWidth),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        Text(
+                            text = label,
+                            fontSize = 9.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
+                    }
                 }
             }
 
-            // Heat cells
-            GridConfig.HOUR_LABELS.forEachIndexed { rowIdx, _ ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(cellHeight)
-                ) {
-                    repeat(GridConfig.COLS) { colIdx ->
-                        val cellIndex = GridConfig.cellIndex(rowIdx, colIdx)
-                        val count = heatmap[cellIndex] ?: 0
-                        val ratio = count.toFloat() / maxCount
-                        val isOptimal = cellIndex == optimalCell
-                        val isSelected = cellIndex == selectedCell
+            // Grid column
+            Column(
+                modifier = Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .width(cellWidth * cols)
+            ) {
+                // Day headers
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    gridConfig.dayLabels.forEach { day ->
+                        Text(
+                            text = day,
+                            modifier = Modifier.width(cellWidth),
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1
+                        )
+                    }
+                }
 
-                        Box(
-                            modifier = Modifier
-                                .width(cellWidth)
-                                .fillMaxHeight()
-                                .background(if (count > 0) heatColor(ratio) else MaterialTheme.colorScheme.surfaceVariant)
-                                .border(
-                                    width = if (isSelected) 2.dp else if (isOptimal) 1.5.dp else 0.5.dp,
-                                    color = when {
-                                        isSelected -> MaterialTheme.colorScheme.tertiary
-                                        isOptimal -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.6f)
-                                        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-                                    }
-                                )
-                                .clickable { if (count > 0) onCellTapped(cellIndex) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (count > 0) {
-                                Text(
-                                    text = "$count",
-                                    fontSize = 8.sp,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold
-                                )
+                // Heat cells
+                gridConfig.hourLabels.forEachIndexed { rowIdx, _ ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(cellHeight)
+                    ) {
+                        repeat(gridConfig.cols) { colIdx ->
+                            val cellIndex = gridConfig.cellIndex(rowIdx, colIdx)
+                            val count = heatmap[cellIndex] ?: 0
+                            val safeTotal = totalParticipants.coerceAtLeast(1)
+                            val ratio = count.toFloat() / safeTotal
+                            val isOptimal = cellIndex == optimalCell
+                            val isSelected = cellIndex == selectedCell
+
+                            val borderWidth = when {
+                                isOptimal -> pulseWidth.dp
+                                isSelected -> 2.dp
+                                else -> 0.5.dp
+                            }
+                            val tertiaryColor = MaterialTheme.colorScheme.tertiary
+                            val outlineColor = MaterialTheme.colorScheme.outline
+                            val borderColor = when {
+                                isOptimal -> tertiaryColor
+                                isSelected -> tertiaryColor.copy(alpha = 0.7f)
+                                else -> outlineColor.copy(alpha = 0.2f)
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .width(cellWidth)
+                                    .fillMaxHeight()
+                                    .padding(1.5.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(
+                                        if (count > 0) heatColor(ratio)
+                                        else MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                    .then(
+                                        if (isOptimal || isSelected) {
+                                            Modifier.border(
+                                                width = borderWidth,
+                                                color = borderColor,
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                        } else Modifier
+                                    )
+                                    .clickable { if (count > 0) onCellTapped(cellIndex) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (count > 0) {
+                                    Text(
+                                        text = "$count",
+                                        fontSize = 9.sp,
+                                        color = if (ratio > 0.5f) Color.White else MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }
@@ -267,75 +409,33 @@ private fun HeatmapGrid(
             }
         }
     }
-
-    // Hour label column
-    Column(
-        modifier = Modifier
-            .width(labelColWidth)
-            .padding(top = 20.dp)
-    ) {
-        GridConfig.HOUR_LABELS.forEach { label ->
-            Box(
-                modifier = Modifier
-                    .height(cellHeight)
-                    .width(labelColWidth),
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                Text(
-                    text = label,
-                    fontSize = 9.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(end = 4.dp)
-                )
-            }
-        }
-    }
 }
 
-/**
- * Maps a normalised ratio [0, 1] to a heat color.
- * Uses Material Green palette: low consensus → light green, high → deep green.
- * Strict monotonic saturation increase ensures pre-attentive pop-out of
- * high-consensus slots without requiring legend consultation.
- */
-private fun heatColor(ratio: Float): Color {
-    val low = Color(0xFFA5D6A7)   // Green 200
-    val high = Color(0xFF1B5E20)  // Green 900
-    return lerp(low, high, ratio.coerceIn(0f, 1f))
-}
-
-/**
- * Bottom sheet content: final calendar invitation summary.
- */
 @Composable
 private fun FinalSummarySheet(
-    eventRequest: com.example.cheese.data.EventRequest,
+    gridConfig: GridConfig,
+    eventRequest: EventRequest,
     selectedCell: Int?,
+    responses: Map<String, ParticipantResponse>,
     totalParticipants: Int,
     heatmap: Map<Int, Int>,
-    maxCount: Int,
+    onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
 
-    // Decode selected cell to human-readable time
-    val (dayLabel, hourLabel) = if (selectedCell != null) {
-        val row = selectedCell / GridConfig.COLS
-        val col = selectedCell % GridConfig.COLS
-        GridConfig.DAY_LABELS.getOrElse(col) { "?" } to GridConfig.HOUR_LABELS.getOrElse(row) { "?" }
-    } else {
-        "—" to "—"
-    }
+    val dayLabel = selectedCell?.let { gridConfig.cellToDay(it) } ?: "—"
+    val hourLabel = selectedCell?.let { gridConfig.cellToHour(it) } ?: "—"
 
     val consensusCount = selectedCell?.let { heatmap[it] } ?: 0
-    val consensusPct = if (totalParticipants > 0)
-        (consensusCount * 100f / totalParticipants).toInt() else 0
+    val consensusPct = if (totalParticipants > 0) (consensusCount * 100f / totalParticipants).toInt() else 0
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp)
-            .padding(bottom = 32.dp),
+            .padding(bottom = 32.dp)
+            .animateContentSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
@@ -347,7 +447,7 @@ private fun FinalSummarySheet(
 
         HorizontalDivider()
 
-        SummaryRow(label = "Event", value = eventRequest.eventName.ifBlank { "Untitled" })
+        SummaryRow(label = "Event", value = "${eventRequest.eventEmoji} ${eventRequest.eventName.ifBlank { "Untitled" }}")
         SummaryRow(
             label = "Window",
             value = if (eventRequest.startDateMillis > 0L && eventRequest.endDateMillis > 0L)
@@ -356,31 +456,86 @@ private fun FinalSummarySheet(
         )
         SummaryRow(label = "Day", value = dayLabel)
         SummaryRow(label = "Time", value = hourLabel)
-        SummaryRow(label = "Consensus", value = "$consensusCount / $totalParticipants participants ($consensusPct%)")
-
-        Spacer(Modifier.height(8.dp))
-
-        // Consensus indicator bar
-        LinearProgressIndicator(
-            progress = { consensusCount.toFloat() / maxCount.coerceAtLeast(1) },
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.tertiary
+        SummaryRow(
+            label = "Consensus",
+            value = "$consensusCount / $totalParticipants participants ($consensusPct%)"
         )
+
+        HorizontalDivider()
+
         Text(
-            text = "Participant agreement: $consensusPct%",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            text = "Participant Availability",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        val gridConfig = GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis, eventRequest.startHour, eventRequest.endHour)
+        val selectedTimestamp = selectedCell?.let { gridConfig.cellToTimestamp(it) }
+
+        eventRequest.invitees.forEach { invitee ->
+            val response = responses[invitee.name]
+            val isAvailable = selectedTimestamp != null && response?.availability?.contains(selectedTimestamp) == true
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.width(90.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = invitee.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (invitee.isHost) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        SuggestionChip(
+                            onClick = { },
+                            label = { Text("Host", fontSize = 8.sp) },
+                            modifier = Modifier.height(20.dp)
+                        )
+                    }
+                }
+                LinearProgressIndicator(
+                    progress = { if (isAvailable) 1f else 0f },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(8.dp),
+                    color = if (isAvailable) androidx.compose.ui.graphics.Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+                Text(
+                    text = if (isAvailable) "Available" else "Unavailable",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isAvailable) androidx.compose.ui.graphics.Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+
+        Text(
+            text = "$consensusCount out of $totalParticipants Available",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.End
+            textAlign = TextAlign.Center
         )
 
         Spacer(Modifier.height(8.dp))
 
         Button(
-            onClick = onDismiss,
-            modifier = Modifier.fillMaxWidth()
+            onClick = onConfirm,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp)
         ) {
-            Text("Done")
+            Text("Confirm Final Schedule")
         }
     }
 }

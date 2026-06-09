@@ -178,7 +178,7 @@ fun QuickCreateScreen(
                                     // Automatically save them as a friend as requested!
                                     val newInvitee = viewModel.eventRequest.value.invitees.lastOrNull { it.name == newFriendName }
                                     if (newInvitee != null) {
-                                        viewModel.addFriend(newInvitee.name, newInvitee.colorIndex)
+                                        viewModel.addFriend(newInvitee.name) { _, _ -> }
                                     }
                                     newFriendName = ""
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)

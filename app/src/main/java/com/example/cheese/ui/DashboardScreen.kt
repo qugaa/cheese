@@ -56,11 +56,15 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import kotlinx.coroutines.launch
 import com.example.cheese.ui.theme.CuratedParticipantColors
 
 /**
@@ -74,15 +78,42 @@ fun DashboardScreen(
     viewModel: ScheduleViewModel,
     onCreateNewEvent: () -> Unit,
     onQuickCreate: () -> Unit,
-    onOpenEvent: (String) -> Unit
+    onOpenEvent: (String) -> Unit,
+    onLogout: () -> Unit
 ) {
     val events by viewModel.events.collectAsState()
     val templates by viewModel.templates.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
+    val dashboardMessage by viewModel.dashboardMessage.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+
+    androidx.compose.runtime.LaunchedEffect(currentUser) {
+        if (currentUser == null) {
+            onLogout()
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(dashboardMessage) {
+        dashboardMessage?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
+            viewModel.clearDashboardMessage()
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("My Events") },
+                title = { Text(currentUser?.let { "Welcome, $it" } ?: "My Events") },
+                actions = {
+                    androidx.compose.material3.TextButton(onClick = { viewModel.logout() }) {
+                        Text(
+                            text = "Logout",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
@@ -174,7 +205,14 @@ fun DashboardScreen(
                 Spacer(Modifier.height(24.dp))
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                 Spacer(Modifier.height(16.dp))
-                FriendsManagementSection(viewModel)
+                FriendsManagementSection(
+                    viewModel = viewModel,
+                    onShowMessage = { msg ->
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar(msg)
+                        }
+                    }
+                )
             }
         }
     }
@@ -332,7 +370,10 @@ private fun EventCard(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun FriendsManagementSection(viewModel: ScheduleViewModel) {
+private fun FriendsManagementSection(
+    viewModel: ScheduleViewModel,
+    onShowMessage: (String) -> Unit
+) {
     val friends by viewModel.friends.collectAsState()
     val haptic = LocalHapticFeedback.current
     var newFriendName by remember { mutableStateOf("") }
@@ -391,8 +432,12 @@ private fun FriendsManagementSection(viewModel: ScheduleViewModel) {
             IconButton(
                 onClick = {
                     if (newFriendName.isNotBlank()) {
-                        viewModel.addFriend(newFriendName, CuratedParticipantColors.indices.random())
-                        newFriendName = ""
+                        viewModel.addFriend(newFriendName) { success, msg ->
+                            onShowMessage(msg)
+                            if (success) {
+                                newFriendName = ""
+                            }
+                        }
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     }
                 },

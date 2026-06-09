@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "378182951228",
+    "project_id": "cheese-7d881",
+    "storage_bucket": "cheese-7d881.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:378182951228:android:5bfa8bbcb86073d5903e39",
+        "android_client_info": {
+          "package_name": "com.example.cheese"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAMfoS2J8exEReGmHHbyF7O0bbGUOX6Su8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

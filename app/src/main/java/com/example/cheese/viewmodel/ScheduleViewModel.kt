@@ -1,55 +1,164 @@
 package com.example.cheese.viewmodel
 
 import androidx.lifecycle.ViewModel
-import com.example.cheese.data.EventRequest
-import com.example.cheese.data.EventState
-import com.example.cheese.data.GridConfig
-import com.example.cheese.data.Invitee
-import com.example.cheese.data.ParticipantResponse
+import com.example.cheese.data.*
 import com.example.cheese.ui.theme.CuratedParticipantColors
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import com.example.cheese.data.DateOffset
-import com.example.cheese.data.EventTemplate
-import com.example.cheese.data.Friend
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneOffset
-import java.time.DayOfWeek
 import java.time.temporal.TemporalAdjusters
 
 class ScheduleViewModel : ViewModel() {
 
-    // ── Global State: Multi-Event Dashboard ───────────────────────────────────
+    private val db = FirebaseFirestore.getInstance()
 
-    private val _events = MutableStateFlow<List<EventState>>(emptyList())
-    val events: StateFlow<List<EventState>> = _events.asStateFlow()
+    // ── Auth & Users ──────────────────────────────────────────────────────────
 
-    private val _currentEventId = MutableStateFlow<String?>(null)
-    val currentEventId: StateFlow<String?> = _currentEventId.asStateFlow()
+    private val _currentUser = MutableStateFlow<String?>(null)
+    val currentUser: StateFlow<String?> = _currentUser.asStateFlow()
+
+    private val _isLoggingIn = MutableStateFlow(false)
+    val isLoggingIn: StateFlow<Boolean> = _isLoggingIn.asStateFlow()
 
     private val _friends = MutableStateFlow<List<Friend>>(emptyList())
     val friends: StateFlow<List<Friend>> = _friends.asStateFlow()
 
-    fun addFriend(name: String, colorIndex: Int) {
-        _friends.update { list -> 
-            if (list.none { it.name == name }) {
-                list + Friend(name = name, colorIndex = colorIndex)
-            } else list
+    private val _events = MutableStateFlow<List<EventState>>(emptyList())
+    val events: StateFlow<List<EventState>> = _events.asStateFlow()
+
+    private var userListener: ListenerRegistration? = null
+    private var eventsListener: ListenerRegistration? = null
+
+    fun login(username: String, onSuccess: () -> Unit) {
+        if (username.isBlank()) return
+        _isLoggingIn.value = true
+
+        val docRef = db.collection("users").document(username)
+        docRef.get().addOnSuccessListener { document ->
+            if (document.exists()) {
+                _currentUser.value = username
+                setupRealtimeListeners(username)
+                onSuccess()
+                _isLoggingIn.value = false
+            } else {
+                // Create new user
+                val newUser = hashMapOf(
+                    "name" to username,
+                    "friends" to emptyList<String>()
+                )
+                docRef.set(newUser).addOnSuccessListener {
+                    _currentUser.value = username
+                    setupRealtimeListeners(username)
+                    onSuccess()
+                    _isLoggingIn.value = false
+                }
+            }
+        }.addOnFailureListener {
+            _isLoggingIn.value = false
+        }
+    }
+
+    fun logout() {
+        userListener?.remove()
+        eventsListener?.remove()
+        _currentUser.value = null
+        _friends.value = emptyList()
+        _events.value = emptyList()
+    }
+
+    private fun setupRealtimeListeners(username: String) {
+        userListener?.remove()
+        userListener = db.collection("users").document(username).addSnapshotListener { snapshot, e ->
+            if (e != null || snapshot == null) return@addSnapshotListener
+            val friendsList = snapshot.get("friends") as? List<String> ?: emptyList()
+            // Map string array to local Friend UI objects (assigning arbitrary colors)
+            _friends.value = friendsList.mapIndexed { idx, name ->
+                Friend(name = name, colorIndex = CuratedParticipantColors.indices.random())
+            }
+        }
+
+        eventsListener?.remove()
+        eventsListener = db.collection("events")
+            .whereArrayContains("request.inviteeNames", username)
+            .addSnapshotListener { snapshot, e ->
+                if (e != null || snapshot == null) return@addSnapshotListener
+                val fetchedEvents = snapshot.documents.mapNotNull { doc ->
+                    doc.toObject(EventState::class.java)
+                }
+                _events.value = fetchedEvents
+            }
+    }
+
+    fun addFriend(name: String, onResult: (Boolean, String) -> Unit) {
+        val current = _currentUser.value ?: return
+        val friendName = name.trim()
+
+        if (friendName == current) {
+            onResult(false, "You cannot add yourself as a friend.")
+            return
+        }
+
+        db.collection("users").document(friendName).get().addOnSuccessListener { doc ->
+            if (doc.exists()) {
+                val userRef = db.collection("users").document(current)
+                userRef.get().addOnSuccessListener { userDoc ->
+                    val existingFriends = userDoc.get("friends") as? List<String> ?: emptyList()
+                    if (!existingFriends.contains(friendName)) {
+                        val newFriends = existingFriends + friendName
+                        userRef.update("friends", newFriends).addOnSuccessListener {
+                            onResult(true, "Friend added successfully.")
+                        }
+                    } else {
+                        onResult(false, "Already friends with $friendName.")
+                    }
+                }
+            } else {
+                onResult(false, "User '$friendName' not found.")
+            }
         }
     }
 
     fun removeFriend(name: String) {
-        _friends.update { list -> list.filterNot { it.name == name } }
+        val current = _currentUser.value ?: return
+        val userRef = db.collection("users").document(current)
+        userRef.get().addOnSuccessListener { userDoc ->
+            val existingFriends = userDoc.get("friends") as? List<String> ?: emptyList()
+            val newFriends = existingFriends.filterNot { it == name }
+            userRef.update("friends", newFriends)
+        }
+    }
+
+    // ── Global State: Multi-Event Dashboard ───────────────────────────────────
+
+    private val _currentEventId = MutableStateFlow<String?>(null)
+    val currentEventId: StateFlow<String?> = _currentEventId.asStateFlow()
+
+    private val _dashboardMessage = MutableStateFlow<String?>(null)
+    val dashboardMessage: StateFlow<String?> = _dashboardMessage.asStateFlow()
+
+    fun setDashboardMessage(msg: String) {
+        _dashboardMessage.value = msg
+    }
+
+    fun clearDashboardMessage() {
+        _dashboardMessage.value = null
     }
 
     fun createNewEvent() {
         val newEvent = EventRequest()
         _eventRequest.value = newEvent
-        _currentParticipantIndex.value = 0
         _draftAvailability.value = emptySet()
         _currentEventId.value = newEvent.id
+        
+        // Auto-add current user as the host without verification since they are logged in
+        val currentName = _currentUser.value ?: return
+        addInviteeWithoutVerification(currentName)
     }
 
     // ── Templates ─────────────────────────────────────────────────────────────
@@ -85,9 +194,11 @@ class ScheduleViewModel : ViewModel() {
             endHour = 22
         )
         _eventRequest.value = newEvent
-        _currentParticipantIndex.value = 0
         _draftAvailability.value = emptySet()
         _currentEventId.value = newEvent.id
+        
+        val currentName = _currentUser.value ?: return
+        addInviteeWithoutVerification(currentName)
     }
 
     fun saveTemplate(template: EventTemplate) {
@@ -98,16 +209,8 @@ class ScheduleViewModel : ViewModel() {
         _currentEventId.value = eventId
     }
 
-    fun editEvent(eventId: String) {
-        _currentEventId.value = eventId
-        val state = _events.value.find { it.request.id == eventId }
-        if (state != null) {
-            _eventRequest.value = state.request
-        }
-    }
-
     fun deleteEvent(eventId: String) {
-        _events.update { list -> list.filterNot { it.request.id == eventId } }
+        db.collection("events").document(eventId).delete()
         if (_currentEventId.value == eventId) {
             _currentEventId.value = null
         }
@@ -151,9 +254,41 @@ class ScheduleViewModel : ViewModel() {
         _eventRequest.update { it.copy(endDateMillis = millis) }
     }
 
-    // ── Invitee management ────────────────────────────────────────────────────
+    fun addInvitee(name: String, onResult: ((Boolean, String) -> Unit)? = null) {
+        if (name.isBlank()) {
+            onResult?.invoke(false, "Name cannot be empty")
+            return
+        }
+        val currentReq = _eventRequest.value
+        if (currentReq.invitees.any { it.name == name }) {
+            onResult?.invoke(false, "Already added")
+            return
+        }
 
-    fun addInvitee(name: String, providedColorIndex: Int? = null) {
+        // Verify user exists in Firestore
+        db.collection("users").document(name).get().addOnSuccessListener { snapshot ->
+            if (snapshot.exists()) {
+                val newColor = nextUniqueColorIndex(currentReq.invitees.map { it.colorIndex })
+                val isHost = currentReq.invitees.isEmpty()
+                val newInvitee = Invitee(name = name, colorIndex = newColor, isHost = isHost)
+                val newInvitees = currentReq.invitees + newInvitee
+                
+                _eventRequest.update { current ->
+                    current.copy(
+                        invitees = newInvitees,
+                        inviteeNames = newInvitees.map { it.name }
+                    )
+                }
+                onResult?.invoke(true, "Added $name")
+            } else {
+                onResult?.invoke(false, "User '$name' not found.")
+            }
+        }.addOnFailureListener {
+            onResult?.invoke(false, "Network error checking user.")
+        }
+    }
+
+    fun addInviteeWithoutVerification(name: String, colorIndex: Int? = null) {
         val trimmed = name.trim()
         if (trimmed.isBlank()) return
         _eventRequest.update { current ->
@@ -161,17 +296,17 @@ class ScheduleViewModel : ViewModel() {
 
             // First invitee is automatically the host
             val isHost = current.invitees.isEmpty()
-            val colorIndex = providedColorIndex ?: nextUniqueColorIndex(current.invitees.map { it.colorIndex })
+            val colorIndex = colorIndex ?: nextUniqueColorIndex(current.invitees.map { it.colorIndex })
             val newInvitee = Invitee(name = trimmed, colorIndex = colorIndex, isHost = isHost)
 
-            current.copy(invitees = current.invitees + newInvitee)
+            val newInvitees = current.invitees + newInvitee
+            current.copy(
+                invitees = newInvitees,
+                inviteeNames = newInvitees.map { it.name }
+            )
         }
     }
 
-    /**
-     * Picks a palette index not already assigned to an existing participant.
-     * Falls back to a full-palette sample once every curated color is taken.
-     */
     private fun nextUniqueColorIndex(assigned: List<Int>): Int {
         val used = assigned.toSet()
         val available = CuratedParticipantColors.indices.filter { it !in used }
@@ -180,7 +315,11 @@ class ScheduleViewModel : ViewModel() {
 
     fun removeInvitee(name: String) {
         _eventRequest.update { current ->
-            current.copy(invitees = current.invitees.filterNot { it.name == name })
+            val newInvitees = current.invitees.filterNot { it.name == name }
+            current.copy(
+                invitees = newInvitees,
+                inviteeNames = newInvitees.map { it.name }
+            )
         }
     }
 
@@ -194,34 +333,21 @@ class ScheduleViewModel : ViewModel() {
         }
     }
 
-    /** Called when the organizer finalizes the event request and moves to View 2. */
     fun finalizeEventRequest() {
         val request = _eventRequest.value
-        _events.update { list ->
-            val idx = list.indexOfFirst { it.request.id == request.id }
-            if (idx >= 0) {
-                val existing = list[idx]
-                val mut = list.toMutableList()
-                mut[idx] = existing.copy(request = request)
-                mut
-            } else {
-                list + EventState(request = request)
-            }
-        }
+        val newState = EventState(request = request)
+        db.collection("events").document(request.id).set(newState)
     }
 
     // ── View 2 state: Participant Availability Input ──────────────────────────
-
-    private val _currentParticipantIndex = MutableStateFlow(0)
-    val currentParticipantIndex: StateFlow<Int> = _currentParticipantIndex.asStateFlow()
 
     private val _draftAvailability = MutableStateFlow<Set<Int>>(emptySet())
     val draftAvailability: StateFlow<Set<Int>> = _draftAvailability.asStateFlow()
 
     fun currentInvitee(): Invitee? {
         val request = _events.value.find { it.request.id == _currentEventId.value }?.request ?: _eventRequest.value
-        val index = _currentParticipantIndex.value
-        return request.invitees.getOrNull(index)
+        val name = _currentUser.value ?: return null
+        return request.invitees.find { it.name == name }
     }
 
     fun totalParticipants(): Int {
@@ -239,8 +365,10 @@ class ScheduleViewModel : ViewModel() {
         if (index !in 0 until totalCells) return
         val eventState = getCurrentEventState() ?: return
         
-        // Enforce organizer restrictions for non-first participants
-        if (_currentParticipantIndex.value > 0) {
+        val invitee = currentInvitee() ?: return
+        
+        // Enforce organizer restrictions for non-hosts
+        if (!invitee.isHost) {
             val request = eventState.request
             val config = GridConfig(request.startDateMillis, request.endDateMillis, request.startHour, request.endHour)
             val timestamp = config.cellToTimestamp(index)
@@ -250,7 +378,7 @@ class ScheduleViewModel : ViewModel() {
         _draftAvailability.update { it + index }
     }
 
-    private fun loadDraftForCurrentParticipant() {
+    fun loadDraftForCurrentParticipant() {
         val invitee = currentInvitee() ?: return
         val eventId = _currentEventId.value ?: return
         val state = _events.value.find { it.request.id == eventId }
@@ -258,7 +386,7 @@ class ScheduleViewModel : ViewModel() {
         val config = GridConfig(request.startDateMillis, request.endDateMillis, request.startHour, request.endHour)
         
         val existingResponse = state?.responses?.get(invitee.name)
-        val timestamps = existingResponse?.availability ?: emptySet()
+        val timestamps = existingResponse?.availability ?: emptyList()
         
         _draftAvailability.value = timestamps.mapNotNull { config.timestampToCell(it) }.toSet()
     }
@@ -266,46 +394,28 @@ class ScheduleViewModel : ViewModel() {
     fun saveCurrentDraft() {
         val invitee = currentInvitee() ?: return
         val eventId = _currentEventId.value ?: return
-        val state = _events.value.find { it.request.id == eventId }
-        val request = state?.request ?: _eventRequest.value
+        val state = _events.value.find { it.request.id == eventId } ?: return
+        val request = state.request
         val config = GridConfig(request.startDateMillis, request.endDateMillis, request.startHour, request.endHour)
         
-        val timestamps = _draftAvailability.value.map { config.cellToTimestamp(it) }.toSet()
+        val timestamps = _draftAvailability.value.map { config.cellToTimestamp(it) }.toList()
         
-        _events.update { list ->
-            list.map { ev ->
-                if (ev.request.id == eventId) {
-                    val updatedResponses = ev.responses + (invitee.name to ParticipantResponse(invitee.name, timestamps))
-                    var updatedRestrictions = ev.organizerRestrictions
-                    if (_currentParticipantIndex.value == 0) {
-                        val allCells = (0 until config.totalCells).toSet()
-                        val restrictedCells = allCells - _draftAvailability.value
-                        updatedRestrictions = restrictedCells.map { config.cellToTimestamp(it) }.toSet()
-                    }
-                    ev.copy(responses = updatedResponses, organizerRestrictions = updatedRestrictions)
-                } else ev
-            }
+        val updatedResponses = state.responses + (invitee.name to ParticipantResponse(invitee.name, timestamps))
+        
+        var updatedRestrictions = state.organizerRestrictions
+        if (invitee.isHost) {
+            val allCells = (0 until config.totalCells).toSet()
+            val restrictedCells = allCells - _draftAvailability.value
+            updatedRestrictions = restrictedCells.map { config.cellToTimestamp(it) }.toList()
         }
-    }
-
-    fun previousParticipant() {
-        if (_currentParticipantIndex.value > 0) {
-            saveCurrentDraft()
-            _currentParticipantIndex.update { it - 1 }
-            loadDraftForCurrentParticipant()
-        }
+        
+        val newState = state.copy(responses = updatedResponses, organizerRestrictions = updatedRestrictions)
+        db.collection("events").document(eventId).set(newState)
     }
 
     fun submitAvailability() {
         saveCurrentDraft()
-
-        val total = totalParticipants()
-        if (_currentParticipantIndex.value < total - 1) {
-            _currentParticipantIndex.update { it + 1 }
-            loadDraftForCurrentParticipant()
-        } else {
-            _draftAvailability.value = emptySet()
-        }
+        _draftAvailability.value = emptySet()
     }
 
     // ── View 3 state: Algorithmic Resolution ──────────────────────────────────
@@ -334,6 +444,27 @@ class ScheduleViewModel : ViewModel() {
             .toMap()
     }
 
+    fun getConflictingTimestamps(): Set<Long> {
+        val currentName = _currentUser.value ?: return emptySet()
+        val currentEventId = _currentEventId.value
+        
+        val conflictingTimestamps = mutableSetOf<Long>()
+        for (state in _events.value) {
+            if (state.request.id == currentEventId) continue
+            if (!state.request.inviteeNames.contains(currentName)) continue
+            
+            val finalIndex = state.finalCellIndex ?: continue
+            val config = GridConfig(
+                state.request.startDateMillis, 
+                state.request.endDateMillis, 
+                state.request.startHour, 
+                state.request.endHour
+            )
+            conflictingTimestamps.add(config.cellToTimestamp(finalIndex))
+        }
+        return conflictingTimestamps
+    }
+
     fun computeOptimalCell(gridConfig: GridConfig): Int? {
         val heatmap = computeHeatmap(gridConfig)
         return heatmap.maxByOrNull { it.value }?.key
@@ -341,11 +472,8 @@ class ScheduleViewModel : ViewModel() {
 
     fun setFinalEvent(cellIndex: Int) {
         val eventId = _currentEventId.value ?: return
-        _events.update { list ->
-            list.map {
-                if (it.request.id == eventId) it.copy(finalCellIndex = cellIndex)
-                else it
-            }
-        }
+        val state = _events.value.find { it.request.id == eventId } ?: return
+        val newState = state.copy(finalCellIndex = cellIndex)
+        db.collection("events").document(eventId).set(newState)
     }
 }

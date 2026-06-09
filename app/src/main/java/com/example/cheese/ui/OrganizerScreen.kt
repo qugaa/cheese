@@ -32,6 +32,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -354,7 +355,6 @@ fun OrganizerScreen(
                             }
                         }
                     }
-
                     if (friends.isNotEmpty()) {
                         Text("Saved Friends", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -366,7 +366,7 @@ fun OrganizerScreen(
                                         if (isAdded) {
                                             viewModel.removeInvitee(friend.name)
                                         } else {
-                                            viewModel.addInvitee(friend.name, friend.colorIndex)
+                                            viewModel.addInviteeWithoutVerification(friend.name, friend.colorIndex)
                                         }
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     },
@@ -381,26 +381,55 @@ fun OrganizerScreen(
                                 )
                             }
                         }
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
 
-                    OutlinedTextField(
-                        value = inviteeInput,
-                        onValueChange = { inviteeInput = it },
-                        placeholder = { Text("Add more name...") },
-                        singleLine = true,
+                    // 4. Manual Add Input
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(
-                            onDone = {
-                                if (inviteeInput.isNotBlank()) {
-                                    viewModel.addInvitee(inviteeInput)
-                                    inviteeInput = ""
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = inviteeInput,
+                            onValueChange = { inviteeInput = it },
+                            label = { Text("Invite by name") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    if (inviteeInput.isNotBlank()) {
+                                        viewModel.addInvitee(inviteeInput) { success, msg ->
+                                            if (success) {
+                                                inviteeInput = ""
+                                            } else {
+                                                scope.launch { snackbarHostState.showSnackbar(msg) }
+                                            }
+                                        }
+                                    }
+                                }
+                            ),
+                            trailingIcon = {
+                                IconButton(
+                                    onClick = {
+                                        if (inviteeInput.isNotBlank()) {
+                                            viewModel.addInvitee(inviteeInput) { success, msg ->
+                                                if (success) {
+                                                    inviteeInput = ""
+                                                } else {
+                                                    scope.launch { snackbarHostState.showSnackbar(msg) }
+                                                }
+                                            }
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = "Add Invitee")
                                 }
                             }
                         )
-                    )
+                    }
                 }
             }
 

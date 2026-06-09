@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -22,7 +24,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Edit
@@ -42,6 +46,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -50,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -68,7 +74,22 @@ import com.example.cheese.ui.theme.CuratedParticipantColors
 import com.example.cheese.viewmodel.ScheduleViewModel
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+private val LightSageGreen = Color(0xFFD5E8D4)
+private val MediumMintGreen = Color(0xFFA5D6A7)
+private val VibrantEmeraldGreen = Color(0xFF4CAF50)
+private val DeepForestGreen = Color(0xFF1B5E20)
+
+private fun heatColor(ratio: Float): Color {
+    return when {
+        ratio <= 0f -> Color.Transparent
+        ratio <= 0.25f -> LightSageGreen
+        ratio <= 0.50f -> MediumMintGreen
+        ratio <= 0.75f -> VibrantEmeraldGreen
+        else -> DeepForestGreen
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ParticipantScreen(
     viewModel: ScheduleViewModel,
@@ -77,7 +98,6 @@ fun ParticipantScreen(
     onBackToDashboard: () -> Unit
 ) {
     val draftAvailability by viewModel.draftAvailability.collectAsState()
-    val participantIndex by viewModel.currentParticipantIndex.collectAsState()
     val currentEventId by viewModel.currentEventId.collectAsState()
     val events by viewModel.events.collectAsState()
     
@@ -89,7 +109,7 @@ fun ParticipantScreen(
     val currentInvitee = viewModel.currentInvitee()
     val participantName = currentInvitee?.name ?: "Unknown"
     val participantColor = currentInvitee?.colorIndex?.let { CuratedParticipantColors[it] } ?: Color(0xFFC8E6C9)
-    val isOrganizer = participantIndex == 0
+    val isOrganizer = currentInvitee?.isHost == true
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -99,8 +119,17 @@ fun ParticipantScreen(
         GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis, eventRequest.startHour, eventRequest.endHour)
     }
 
-    val restrictedCellsInts = remember(organizerRestrictions, gridConfig) {
-        organizerRestrictions.mapNotNull { gridConfig.timestampToCell(it) }.toSet()
+    val responses = eventState?.responses ?: emptyMap()
+    val heatmap = remember(responses) { viewModel.computeHeatmap(gridConfig) }
+    val totalParticipants = eventRequest.invitees.size
+
+    val conflicts = remember(events) { viewModel.getConflictingTimestamps() }
+    val conflictingCells = remember(conflicts, gridConfig) {
+        conflicts.mapNotNull { gridConfig.timestampToCell(it) }.toSet()
+    }
+
+    LaunchedEffect(currentEventId) {
+        viewModel.loadDraftForCurrentParticipant()
     }
 
     // Placing the CTA in the bottomBar slot of the Scaffold ensures that the
@@ -138,31 +167,22 @@ fun ParticipantScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (participantIndex > 0) {
-                        OutlinedButton(
-                            onClick = { viewModel.previousParticipant() },
-                            shape = RoundedCornerShape(28.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Previous")
-                        }
-                    }
                     val isEmpty = draftAvailability.isEmpty()
                     Button(
                         onClick = {
                             scope.launch {
-                                snackbarHostState.showSnackbar(if (isEmpty && !isOrganizer) "Marked as not available" else "Availability submitted for $participantName")
+                                val msg = if (isEmpty && !isOrganizer) "Marked as not available" else "Availability submitted for $participantName"
+                                snackbarHostState.showSnackbar(msg)
                             }
-                            val isLast = participantIndex == viewModel.totalParticipants() - 1
                             viewModel.submitAvailability()
-                            onSubmitted(isLast)
+                            onSubmitted(true)
                         },
-                        modifier = Modifier.weight(if (participantIndex > 0) 2f else 1f),
+                        modifier = Modifier.weight(1f),
                         enabled = if (isOrganizer) !isEmpty else true,
                         colors = if (!isOrganizer && isEmpty) androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else androidx.compose.material3.ButtonDefaults.buttonColors(),
                         shape = RoundedCornerShape(28.dp)
                     ) {
-                        Text(if (!isOrganizer && isEmpty) "Not Available" else "Submit Availability")
+                        Text(if (isOrganizer) "Send Event" else if (isEmpty) "Not Available" else "Submit Availability")
                     }
                 }
             }
@@ -188,10 +208,46 @@ fun ParticipantScreen(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Responding as: $participantName (${participantIndex + 1}/${viewModel.totalParticipants()})",
+                            text = "Responding as: $participantName",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Invited:",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            eventRequest.invitees.forEach { invitee ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surface,
+                                    modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .background(CuratedParticipantColors[invitee.colorIndex], CircleShape)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = invitee.name,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -219,7 +275,9 @@ fun ParticipantScreen(
                 AvailabilityGrid(
                     gridConfig = gridConfig,
                     selectedCells = draftAvailability,
-                    restrictedCells = if (isOrganizer) emptySet() else restrictedCellsInts,
+                    heatmap = heatmap,
+                    conflictingCells = conflictingCells,
+                    totalParticipants = totalParticipants,
                     participantColor = participantColor,
                     onCellToggled = { index ->
                         viewModel.toggleCell(index)
@@ -244,7 +302,9 @@ fun ParticipantScreen(
 private fun AvailabilityGrid(
     gridConfig: GridConfig,
     selectedCells: Set<Int>,
-    restrictedCells: Set<Int>,
+    heatmap: Map<Int, Int>,
+    conflictingCells: Set<Int>,
+    totalParticipants: Int,
     participantColor: Color,
     onCellToggled: (Int) -> Unit,
     onCellPainted: (Int) -> Unit
@@ -327,7 +387,7 @@ private fun AvailabilityGrid(
                 Box(
                     modifier = Modifier
                         .width(cellWidth * cols)
-                        .pointerInput(gridConfig, restrictedCells, cellWidth) {
+                        .pointerInput(gridConfig, cellWidth) {
                             val cellWidthPx = cellWidth.toPx()
                             val cellHeightPx = cellHeight.toPx()
 
@@ -342,11 +402,11 @@ private fun AvailabilityGrid(
                             detectTapGestures(
                                 onTap = { offset ->
                                     val idx = cellAt(offset)
-                                    if (idx !in restrictedCells) onCellToggled(idx)
+                                    onCellToggled(idx)
                                 }
                             )
                         }
-                        .pointerInput(gridConfig, restrictedCells, cellWidth) {
+                        .pointerInput(gridConfig, cellWidth) {
                             val cellWidthPx = cellWidth.toPx()
                             val cellHeightPx = cellHeight.toPx()
 
@@ -362,15 +422,13 @@ private fun AvailabilityGrid(
                             detectDragGesturesAfterLongPress(
                                 onDragStart = { offset ->
                                     val idx = cellAt(offset)
-                                    if (idx !in restrictedCells) {
-                                        onCellPainted(idx)
-                                        lastPainted = idx
-                                    }
+                                    onCellPainted(idx)
+                                    lastPainted = idx
                                 },
                                 onDrag = { change, _ ->
                                     change.consume()
                                     val idx = cellAt(change.position)
-                                    if (idx != lastPainted && idx !in restrictedCells) {
+                                    if (idx != lastPainted) {
                                         onCellPainted(idx)
                                         lastPainted = idx
                                     }
@@ -386,10 +444,10 @@ private fun AvailabilityGrid(
                                 repeat(gridConfig.cols) { colIdx ->
                                     val cellIndex = gridConfig.cellIndex(rowIdx, colIdx)
                                     val isSelected = cellIndex in selectedCells
-                                    val isRestricted = cellIndex in restrictedCells
-
-                                    val outlineColor = MaterialTheme.colorScheme.outline
-                                    val restrictionColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                    val isConflicting = cellIndex in conflictingCells
+                                    val count = heatmap[cellIndex] ?: 0
+                                    val safeTotal = totalParticipants.coerceAtLeast(1)
+                                    val ratio = count.toFloat() / safeTotal
 
                                     Box(
                                         modifier = Modifier
@@ -399,31 +457,40 @@ private fun AvailabilityGrid(
                                             .clip(RoundedCornerShape(6.dp))
                                             .background(
                                                 when {
-                                                    isRestricted -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                                                     isSelected -> participantColor
+                                                    count > 0 -> heatColor(ratio)
                                                     else -> MaterialTheme.colorScheme.surfaceVariant
                                                 }
                                             )
-                                            .then(
-                                                if (isRestricted) {
-                                                    Modifier.drawBehind {
-                                                        val step = 8.dp.toPx()
-                                                        val strokeColor = restrictionColor.copy(alpha = 0.2f)
-                                                        var x = 0f
-                                                        while (x < size.width + size.height) {
-                                                            drawLine(
-                                                                color = strokeColor,
-                                                                start = Offset(x, 0f),
-                                                                end = Offset(x - size.height, size.height),
-                                                                strokeWidth = 1.dp.toPx(),
-                                                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f))
-                                                            )
-                                                            x += step
-                                                        }
-                                                    }
-                                                } else Modifier
+                                            .drawWithContent {
+                                                drawContent()
+                                                if (isConflicting) {
+                                                    drawRect(Color.Gray.copy(alpha = 0.4f))
+                                                    drawLine(
+                                                        color = Color.DarkGray.copy(alpha = 0.6f),
+                                                        start = Offset(0f, 0f),
+                                                        end = Offset(size.width, size.height),
+                                                        strokeWidth = 2.dp.toPx()
+                                                    )
+                                                    drawLine(
+                                                        color = Color.DarkGray.copy(alpha = 0.6f),
+                                                        start = Offset(size.width, 0f),
+                                                        end = Offset(0f, size.height),
+                                                        strokeWidth = 2.dp.toPx()
+                                                    )
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (count > 0 && !isSelected) {
+                                            Text(
+                                                text = "$count",
+                                                fontSize = 9.sp,
+                                                color = if (ratio > 0.5f) Color.White else MaterialTheme.colorScheme.onSurface,
+                                                fontWeight = FontWeight.Bold
                                             )
-                                    )
+                                        }
+                                    }
                                 }
                             }
                         }

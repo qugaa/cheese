@@ -34,8 +34,8 @@ data class Friend(
  * @property isHost      True if this participant is the event organizer (host).
  */
 data class Invitee(
-    val name: String,
-    val colorIndex: Int,
+    val name: String = "",
+    val colorIndex: Int = 0,
     val isHost: Boolean = false
 )
 
@@ -57,7 +57,8 @@ data class EventRequest(
     val endDateMillis: Long = 0L,
     val startHour: Int = 8,
     val endHour: Int = 22,
-    val invitees: List<Invitee> = emptyList()
+    val invitees: List<Invitee> = emptyList(),
+    val inviteeNames: List<String> = emptyList()
 )
 
 /**
@@ -68,8 +69,8 @@ data class EventRequest(
  * the selections stay anchored to their real-world times.
  */
 data class ParticipantResponse(
-    val participantName: String,
-    val availability: Set<Long> = emptySet()
+    val participantName: String = "",
+    val availability: List<Long> = emptyList()
 )
 
 /**
@@ -77,10 +78,10 @@ data class ParticipantResponse(
  * and the aggregated responses from participants.
  */
 data class EventState(
-    val request: EventRequest,
+    val request: EventRequest = EventRequest(),
     val responses: Map<String, ParticipantResponse> = emptyMap(),
     val finalCellIndex: Int? = null,
-    val organizerRestrictions: Set<Long> = emptySet()
+    val organizerRestrictions: List<Long> = emptyList()
 )
 
 /**

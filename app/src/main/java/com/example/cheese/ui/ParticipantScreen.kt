@@ -79,6 +79,7 @@ private val MediumMintGreen = Color(0xFFA5D6A7)
 private val VibrantEmeraldGreen = Color(0xFF4CAF50)
 private val DeepForestGreen = Color(0xFF1B5E20)
 
+@Composable
 private fun heatColor(ratio: Float): Color {
     return when {
         ratio <= 0f -> Color.Transparent
@@ -108,7 +109,6 @@ fun ParticipantScreen(
     
     val currentInvitee = viewModel.currentInvitee()
     val participantName = currentInvitee?.name ?: "Unknown"
-    val participantColor = currentInvitee?.colorIndex?.let { CuratedParticipantColors[it] } ?: Color(0xFFC8E6C9)
     val isOrganizer = currentInvitee?.isHost == true
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -278,7 +278,6 @@ fun ParticipantScreen(
                     heatmap = heatmap,
                     conflictingCells = conflictingCells,
                     totalParticipants = totalParticipants,
-                    participantColor = participantColor,
                     onCellToggled = { index ->
                         viewModel.toggleCell(index)
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -305,7 +304,6 @@ private fun AvailabilityGrid(
     heatmap: Map<Int, Int>,
     conflictingCells: Set<Int>,
     totalParticipants: Int,
-    participantColor: Color,
     onCellToggled: (Int) -> Unit,
     onCellPainted: (Int) -> Unit
 ) {
@@ -457,7 +455,7 @@ private fun AvailabilityGrid(
                                             .clip(RoundedCornerShape(6.dp))
                                             .background(
                                                 when {
-                                                    isSelected -> participantColor
+                                                    isSelected -> VibrantEmeraldGreen
                                                     count > 0 -> heatColor(ratio)
                                                     else -> MaterialTheme.colorScheme.surfaceVariant
                                                 }
@@ -482,7 +480,7 @@ private fun AvailabilityGrid(
                                             },
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        if (count > 0 && !isSelected) {
+                                        if (count > 0) {
                                             Text(
                                                 text = "$count",
                                                 fontSize = 9.sp,

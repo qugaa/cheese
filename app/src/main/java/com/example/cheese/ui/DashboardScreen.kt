@@ -3,17 +3,7 @@ package com.example.cheese.ui
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -22,56 +12,50 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberSwipeToDismissBoxState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cheese.data.EventState
 import com.example.cheese.data.EventTemplate
 import com.example.cheese.viewmodel.ScheduleViewModel
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.InputChip
-import androidx.compose.material3.FilterChip
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.IconButton
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import kotlinx.coroutines.launch
 import com.example.cheese.ui.theme.CuratedParticipantColors
+import com.example.cheese.data.GridConfig
 
-/**
- * Root Landing Destination for the Application.
- * Displays all scheduled plans with their custom emoji and participant count.
- * Includes Swipe-to-Dismiss functionality for deletion and a FAB for new event creation.
- */
+val eventComparator = java.util.Comparator<EventState> { a, b ->
+    val aConfirmed = a.finalCellIndex != null
+    val bConfirmed = b.finalCellIndex != null
+    if (aConfirmed != bConfirmed) {
+        return@Comparator if (aConfirmed) 1 else -1
+    }
+
+    if (!aConfirmed) {
+        val startDiff = a.request.startDateMillis.compareTo(b.request.startDateMillis)
+        if (startDiff != 0) return@Comparator startDiff
+    } else {
+        val aConfig = GridConfig(a.request.startDateMillis, a.request.endDateMillis, a.request.startHour, a.request.endHour)
+        val aTime = aConfig.cellToTimestamp(a.finalCellIndex!!)
+        
+        val bConfig = GridConfig(b.request.startDateMillis, b.request.endDateMillis, b.request.startHour, b.request.endHour)
+        val bTime = bConfig.cellToTimestamp(b.finalCellIndex!!)
+        
+        val timeDiff = aTime.compareTo(bTime)
+        if (timeDiff != 0) return@Comparator timeDiff
+    }
+
+    a.request.eventName.compareTo(b.request.eventName, ignoreCase = true)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
@@ -79,22 +63,27 @@ fun DashboardScreen(
     onCreateNewEvent: () -> Unit,
     onQuickCreate: () -> Unit,
     onOpenEvent: (String) -> Unit,
+    onFriendClick: (String) -> Unit,
     onLogout: () -> Unit
 ) {
     val events by viewModel.events.collectAsState()
     val templates by viewModel.templates.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val dashboardMessage by viewModel.dashboardMessage.collectAsState()
+    val friends by viewModel.friends.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
 
-    androidx.compose.runtime.LaunchedEffect(currentUser) {
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    val tabs = listOf("Events", "Friends")
+
+    LaunchedEffect(currentUser) {
         if (currentUser == null) {
             onLogout()
         }
     }
 
-    androidx.compose.runtime.LaunchedEffect(dashboardMessage) {
+    LaunchedEffect(dashboardMessage) {
         dashboardMessage?.let { msg ->
             snackbarHostState.showSnackbar(msg)
             viewModel.clearDashboardMessage()
@@ -107,7 +96,7 @@ fun DashboardScreen(
             TopAppBar(
                 title = { Text(currentUser?.let { "Welcome, $it" } ?: "My Events") },
                 actions = {
-                    androidx.compose.material3.TextButton(onClick = { viewModel.logout() }) {
+                    TextButton(onClick = { viewModel.logout() }) {
                         Text(
                             text = "Logout",
                             color = MaterialTheme.colorScheme.error
@@ -121,98 +110,185 @@ fun DashboardScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    viewModel.createNewEvent()
-                    onCreateNewEvent()
-                },
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Create New Event")
+            if (selectedTabIndex == 0) {
+                FloatingActionButton(
+                    onClick = {
+                        viewModel.createNewEvent()
+                        onCreateNewEvent()
+                    },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Create New Event")
+                }
             }
         }
     ) { innerPadding ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 80.dp)
+                .padding(innerPadding)
         ) {
-            item {
-                Text(
-                    text = "Quick Create",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
-                )
-                LazyRow(
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(templates, key = { it.id }) { template ->
-                        TemplateCard(template) {
-                            viewModel.createFromTemplate(template)
-                            onQuickCreate()
-                        }
-                    }
+            TabRow(selectedTabIndex = selectedTabIndex) {
+                tabs.forEachIndexed { index, title ->
+                    Tab(
+                        selected = selectedTabIndex == index,
+                        onClick = { selectedTabIndex = index },
+                        text = { Text(title, fontWeight = FontWeight.Bold) }
+                    )
                 }
-                Spacer(Modifier.height(16.dp))
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = "Upcoming Events",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
-                )
             }
 
-            if (events.isEmpty()) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 40.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
+            if (selectedTabIndex == 0) {
+                // Events Tab
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    item {
                         Text(
-                            text = "No events scheduled.\nTap a template or the + button.",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            text = "Quick Create",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
                         )
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(templates, key = { it.id }) { template ->
+                                TemplateCard(template) {
+                                    viewModel.createFromTemplate(template)
+                                    onQuickCreate()
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            text = "Upcoming Events",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                        )
+                    }
+
+                    if (events.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 40.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "No events scheduled.\nTap a template or the + button.",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    } else {
+                        val sortedEvents = events.sortedWith(eventComparator)
+                        items(sortedEvents, key = { it.request.id }) { eventState ->
+                            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                                EventCard(
+                                    eventState = eventState,
+                                    onDelete = { viewModel.deleteEvent(eventState.request.id) },
+                                    onClick = {
+                                        viewModel.selectEvent(eventState.request.id)
+                                        onOpenEvent(eventState.request.id)
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             } else {
-                items(events, key = { it.request.id }) { eventState ->
-                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                        EventCard(
-                            eventState = eventState,
-                            onDelete = { viewModel.deleteEvent(eventState.request.id) },
-                            onClick = {
-                                viewModel.selectEvent(eventState.request.id)
-                                onOpenEvent(eventState.request.id)
-                            }
-                        )
-                    }
-                }
-            }
+                // Friends Tab
+                var searchQuery by remember { mutableStateOf("") }
+                val haptic = LocalHapticFeedback.current
 
-            item {
-                Spacer(Modifier.height(24.dp))
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-                Spacer(Modifier.height(16.dp))
-                FriendsManagementSection(
-                    viewModel = viewModel,
-                    onShowMessage = { msg ->
-                        coroutineScope.launch {
-                            snackbarHostState.showSnackbar(msg)
+                val filteredFriends = friends.filter {
+                    it.name.contains(searchQuery, ignoreCase = true)
+                }
+
+                Column(modifier = Modifier.fillMaxSize()) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        placeholder = { Text("Search friends...") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true
+                    )
+
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 80.dp)
+                    ) {
+                        items(filteredFriends, key = { it.name }) { friend ->
+                            ListItem(
+                                headlineContent = { Text(friend.name, fontWeight = FontWeight.SemiBold) },
+                                leadingContent = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .background(CuratedParticipantColors[friend.colorIndex], CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = friend.name.firstOrNull()?.uppercase() ?: "?",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.clickable {
+                                    onFriendClick(friend.name)
+                                }
+                            )
+                            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                        }
+
+                        // Add friend item if query is not blank and no exact match
+                        if (searchQuery.isNotBlank() && friends.none { it.name.equals(searchQuery, ignoreCase = true) }) {
+                            item {
+                                ListItem(
+                                    headlineContent = { Text("Add '$searchQuery' as friend", color = MaterialTheme.colorScheme.primary) },
+                                    leadingContent = {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(Icons.Default.Person, contentDescription = "Add", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                                        }
+                                    },
+                                    modifier = Modifier.clickable {
+                                        viewModel.addFriend(searchQuery.trim()) { success, msg ->
+                                            coroutineScope.launch {
+                                                snackbarHostState.showSnackbar(msg)
+                                            }
+                                            if (success) {
+                                                searchQuery = ""
+                                            }
+                                        }
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    }
+                                )
+                            }
                         }
                     }
-                )
+                }
             }
         }
     }
@@ -262,14 +338,14 @@ private fun TemplateCard(template: EventTemplate, onClick: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EventCard(
+fun EventCard(
     eventState: EventState,
     onDelete: () -> Unit,
     onClick: () -> Unit
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = {
-            if (it == SwipeToDismissBoxValue.EndToStart || it == SwipeToDismissBoxValue.StartToEnd) {
+            if (it == SwipeToDismissBoxValue.EndToStart) {
                 onDelete()
                 true
             } else {
@@ -280,6 +356,7 @@ private fun EventCard(
 
     SwipeToDismissBox(
         state = dismissState,
+        enableDismissFromStartToEnd = false,
         backgroundContent = {
             val color = MaterialTheme.colorScheme.errorContainer
             val alignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
@@ -366,85 +443,4 @@ private fun EventCard(
             }
         }
     )
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun FriendsManagementSection(
-    viewModel: ScheduleViewModel,
-    onShowMessage: (String) -> Unit
-) {
-    val friends by viewModel.friends.collectAsState()
-    val haptic = LocalHapticFeedback.current
-    var newFriendName by remember { mutableStateOf("") }
-    
-    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-        Text(
-            text = "Saved Friends",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
-        
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            friends.forEach { friend ->
-                InputChip(
-                    selected = true,
-                    onClick = { },
-                    label = { Text(friend.name) },
-                    leadingIcon = {
-                        Box(
-                            modifier = Modifier
-                                .size(12.dp)
-                                .background(CuratedParticipantColors[friend.colorIndex], CircleShape)
-                        )
-                    },
-                    trailingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Remove",
-                            modifier = Modifier.clickable {
-                                viewModel.removeFriend(friend.name)
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            }
-                        )
-                    }
-                )
-            }
-        }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = newFriendName,
-                onValueChange = { newFriendName = it },
-                placeholder = { Text("Add a friend...") },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp)
-            )
-            Spacer(Modifier.width(8.dp))
-            IconButton(
-                onClick = {
-                    if (newFriendName.isNotBlank()) {
-                        viewModel.addFriend(newFriendName) { success, msg ->
-                            onShowMessage(msg)
-                            if (success) {
-                                newFriendName = ""
-                            }
-                        }
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    }
-                },
-                colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.primary)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add Friend", tint = MaterialTheme.colorScheme.onPrimary)
-            }
-        }
-    }
 }

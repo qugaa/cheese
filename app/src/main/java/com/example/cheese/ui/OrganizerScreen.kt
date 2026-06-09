@@ -3,6 +3,8 @@ package com.example.cheese.ui
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,12 +30,14 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
@@ -87,11 +91,12 @@ import java.util.Locale
 
 val COMMON_EMOJIS = listOf("📅", "🍔", "🏀", "🎮", "🍻", "🎬", "📚", "✈️")
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun OrganizerScreen(
     viewModel: ScheduleViewModel,
-    onRequestSent: () -> Unit
+    onRequestSent: () -> Unit,
+    onBack: () -> Unit
 ) {
     val eventRequest by viewModel.eventRequest.collectAsState()
     val friends by viewModel.friends.collectAsState()
@@ -101,6 +106,10 @@ fun OrganizerScreen(
 
     var inviteeInput by remember { mutableStateOf("") }
     var saveAsTemplate by remember { mutableStateOf(false) }
+
+    var emojiList by remember { mutableStateOf(COMMON_EMOJIS) }
+    var showAddEmojiDialog by remember { mutableStateOf(false) }
+    var emojiToDelete by remember { mutableStateOf<String?>(null) }
 
     val isEventNameValid = eventRequest.eventName.isNotBlank()
     val isDateRangeValid = eventRequest.startDateMillis > 0L && eventRequest.endDateMillis > 0L
@@ -112,6 +121,14 @@ fun OrganizerScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Schedule New Event") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
@@ -147,7 +164,7 @@ fun OrganizerScreen(
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        COMMON_EMOJIS.forEach { emoji ->
+                        emojiList.forEach { emoji ->
                             Box(
                                 modifier = Modifier
                                     .size(40.dp)
@@ -156,12 +173,100 @@ fun OrganizerScreen(
                                         if (eventRequest.eventEmoji == emoji) MaterialTheme.colorScheme.primaryContainer
                                         else MaterialTheme.colorScheme.surfaceVariant
                                     )
-                                    .clickable { viewModel.updateEventEmoji(emoji) },
+                                    .combinedClickable(
+                                        onClick = { viewModel.updateEventEmoji(emoji) },
+                                        onLongClick = {
+                                            if (emojiList.size > 1) {
+                                                emojiToDelete = emoji
+                                            }
+                                        }
+                                    ),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(emoji, fontSize = 20.sp)
                             }
                         }
+                        
+                        // Add custom emoji button
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .clickable { showAddEmojiDialog = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Add Custom Emoji")
+                        }
+                    }
+
+                    if (emojiToDelete != null) {
+                        AlertDialog(
+                            onDismissRequest = { emojiToDelete = null },
+                            title = { Text("Remove Emoji") },
+                            text = { Text("Are you sure you want to remove $emojiToDelete from the list?") },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        emojiList = emojiList.filter { it != emojiToDelete }
+                                        emojiToDelete = null
+                                    }
+                                ) {
+                                    Text("Remove")
+                                }
+                            },
+                            dismissButton = {
+                                Button(onClick = { emojiToDelete = null }) {
+                                    Text("Cancel")
+                                }
+                            }
+                        )
+                    }
+
+                    if (showAddEmojiDialog) {
+                        var newEmoji by remember { mutableStateOf("") }
+                        val isEmojiOnly = newEmoji.isNotBlank() && newEmoji.all {
+                            it.isSurrogate() || it.category == kotlin.text.CharCategory.OTHER_SYMBOL || it.category == kotlin.text.CharCategory.MATH_SYMBOL || it.category == kotlin.text.CharCategory.NON_SPACING_MARK || it.category == kotlin.text.CharCategory.ENCLOSING_MARK
+                        }
+                        AlertDialog(
+                            onDismissRequest = { showAddEmojiDialog = false },
+                            title = { Text("Add Custom Emoji") },
+                            text = {
+                                Column {
+                                    OutlinedTextField(
+                                        value = newEmoji,
+                                        onValueChange = { newEmoji = it },
+                                        singleLine = true,
+                                        placeholder = { Text("Type an emoji...") },
+                                        isError = newEmoji.isNotBlank() && !isEmojiOnly,
+                                        supportingText = {
+                                            if (newEmoji.isNotBlank() && !isEmojiOnly) {
+                                                Text("Only emojis are allowed")
+                                            }
+                                        }
+                                    )
+                                }
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        if (isEmojiOnly) {
+                                            emojiList = emojiList + newEmoji
+                                            viewModel.updateEventEmoji(newEmoji)
+                                        }
+                                        showAddEmojiDialog = false
+                                    },
+                                    enabled = isEmojiOnly
+                                ) {
+                                    Text("Add")
+                                }
+                            },
+                            dismissButton = {
+                                Button(onClick = { showAddEmojiDialog = false }) {
+                                    Text("Cancel")
+                                }
+                            }
+                        )
                     }
 
                     OutlinedTextField(

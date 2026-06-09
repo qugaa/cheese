@@ -14,6 +14,7 @@ import com.example.cheese.ui.EventDetailsScreen
 import com.example.cheese.ui.LoginScreen
 import com.example.cheese.ui.OrganizerScreen
 import com.example.cheese.ui.ParticipantScreen
+import com.example.cheese.ui.FriendDetailsScreen
 import com.example.cheese.ui.ResolutionScreen
 import com.example.cheese.ui.SplashScreen
 import com.example.cheese.ui.QuickCreateScreen
@@ -114,9 +115,42 @@ fun CheeseApp() {
                         }
                     }
                 },
+                onFriendClick = { friendName ->
+                    navController.navigate("friend_details/$friendName")
+                },
                 onLogout = {
                     navController.navigate("login") {
                         popUpTo("dashboard") { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        // ── Friend Details ────────────────────────────────────────────────────
+        composable("friend_details/{friendName}") { backStackEntry ->
+            val friendName = backStackEntry.arguments?.getString("friendName") ?: return@composable
+            FriendDetailsScreen(
+                friendName = friendName,
+                viewModel = scheduleViewModel,
+                onBack = { navController.popBackStack() },
+                onOpenEvent = { eventId ->
+                    val state = scheduleViewModel.events.value.find { it.request.id == eventId }
+                    if (state != null) {
+                        scheduleViewModel.selectEvent(eventId)
+                        val currentUser = scheduleViewModel.currentUser.value
+                        val isHost = state.request.invitees.firstOrNull()?.name == currentUser
+                        val hasSubmitted = state.responses.containsKey(currentUser)
+                        val isFinalized = state.finalCellIndex != null
+                        
+                        if (isFinalized) {
+                            navController.navigate("event_details")
+                        } else if (!hasSubmitted) {
+                            navController.navigate("participant")
+                        } else if (isHost) {
+                            navController.navigate("resolution")
+                        } else {
+                            navController.navigate("participant")
+                        }
                     }
                 }
             )
@@ -148,7 +182,8 @@ fun CheeseApp() {
                 onRequestSent = {
                     scheduleViewModel.finalizeEventRequest()
                     navController.navigate("participant")
-                }
+                },
+                onBack = { navController.navigateUp() }
             )
         }
 

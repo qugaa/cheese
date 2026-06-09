@@ -24,12 +24,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -73,6 +77,7 @@ private val MediumMintGreen = Color(0xFFA5D6A7)
 private val VibrantEmeraldGreen = Color(0xFF4CAF50)
 private val DeepForestGreen = Color(0xFF1B5E20)
 
+@Composable
 private fun heatColor(ratio: Float): Color {
     return when {
         ratio <= 0f -> Color.Transparent
@@ -481,41 +486,30 @@ private fun FinalSummarySheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.width(90.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = invitee.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    if (invitee.isHost) {
-                        Spacer(modifier = Modifier.width(4.dp))
-                        SuggestionChip(
-                            onClick = { },
-                            label = { Text("Host", fontSize = 8.sp) },
-                            modifier = Modifier.height(20.dp)
-                        )
-                    }
-                }
-                LinearProgressIndicator(
-                    progress = { if (isAvailable) 1f else 0f },
+                Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .height(8.dp),
-                    color = if (isAvailable) androidx.compose.ui.graphics.Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        .size(10.dp)
+                        .background(
+                            color = if (isAvailable) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
+                            shape = CircleShape
+                        )
                 )
                 Text(
-                    text = if (isAvailable) "Available" else "Unavailable",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (isAvailable) androidx.compose.ui.graphics.Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
-                    fontWeight = FontWeight.SemiBold
+                    text = invitee.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
+                if (invitee.isHost) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    SuggestionChip(
+                        onClick = { },
+                        label = { Text("Host", fontSize = 8.sp) },
+                        modifier = Modifier.height(20.dp)
+                    )
+                }
             }
         }
 

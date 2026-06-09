@@ -15,6 +15,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -23,6 +27,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SuggestionChip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -162,41 +167,30 @@ fun EventDetailsScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier.width(90.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = invitee.name,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    modifier = Modifier.weight(1f, fill = false)
-                                )
-                                if (invitee.isHost) {
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    SuggestionChip(
-                                        onClick = { },
-                                        label = { Text("Host", fontSize = 8.sp) },
-                                        modifier = Modifier.height(20.dp)
-                                    )
-                                }
-                            }
-                            LinearProgressIndicator(
-                                progress = { if (isAvailable) 1f else 0f },
+                            Box(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .height(8.dp),
-                                color = if (isAvailable) androidx.compose.ui.graphics.Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
-                                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                    .size(10.dp)
+                                    .background(
+                                        color = if (isAvailable) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
+                                        shape = CircleShape
+                                    )
                             )
                             Text(
-                                text = if (isAvailable) "Available" else "Unavailable",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (isAvailable) androidx.compose.ui.graphics.Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
-                                fontWeight = FontWeight.SemiBold
+                                text = invitee.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
+                            if (invitee.isHost) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                SuggestionChip(
+                                    onClick = { },
+                                    label = { Text("Host", fontSize = 8.sp) },
+                                    modifier = Modifier.height(20.dp)
+                                )
+                            }
                         }
                     }
                 }

@@ -31,6 +31,10 @@ import com.example.cheese.viewmodel.ScheduleViewModel
 import kotlinx.coroutines.launch
 import com.example.cheese.ui.theme.CuratedParticipantColors
 import com.example.cheese.data.GridConfig
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.roundToInt
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 
 val eventComparator = java.util.Comparator<EventState> { a, b ->
     val aConfirmed = a.finalCellIndex != null
@@ -343,104 +347,132 @@ fun EventCard(
     onDelete: () -> Unit,
     onClick: () -> Unit
 ) {
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = {
-            if (it == SwipeToDismissBoxValue.EndToStart) {
-                onDelete()
-                true
-            } else {
-                false
-            }
+    val density = LocalDensity.current
+    val maxRevealPx = with(density) { 100.dp.toPx() }
+    val offsetX = remember { androidx.compose.animation.core.Animatable(0f) }
+    val coroutineScope = rememberCoroutineScope()
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            // Using IntrinsicSize.Min ensures the background box height matches the Card height
+            .height(androidx.compose.foundation.layout.IntrinsicSize.Min)
+    ) {
+        // Background - Delete Button
+        val color = MaterialTheme.colorScheme.errorContainer
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(color, RoundedCornerShape(12.dp))
+                .clickable {
+                    onDelete()
+                }
+                .padding(horizontal = 20.dp),
+            contentAlignment = Alignment.CenterEnd
+        ) {
+            Icon(
+                Icons.Default.Delete,
+                contentDescription = "Delete",
+                tint = MaterialTheme.colorScheme.onErrorContainer
+            )
         }
-    )
 
-    SwipeToDismissBox(
-        state = dismissState,
-        enableDismissFromStartToEnd = false,
-        backgroundContent = {
-            val color = MaterialTheme.colorScheme.errorContainer
-            val alignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(color, RoundedCornerShape(12.dp))
-                    .padding(horizontal = 20.dp),
-                contentAlignment = alignment
-            ) {
-                Icon(
-                    Icons.Default.Delete,
-                    contentDescription = "Delete",
-                    tint = MaterialTheme.colorScheme.onErrorContainer
-                )
+        // Foreground - Event Card
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset { androidx.compose.ui.unit.IntOffset(offsetX.value.roundToInt(), 0) }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            coroutineScope.launch {
+                                if (offsetX.value < -maxRevealPx / 2) {
+                                    offsetX.animateTo(-maxRevealPx)
+                                } else {
+                                    offsetX.animateTo(0f)
+                                }
+                            }
+                        },
+                        onDragCancel = {
+                            coroutineScope.launch {
+                                offsetX.animateTo(0f)
+                            }
+                        },
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            coroutineScope.launch {
+                                offsetX.snapTo((offsetX.value + dragAmount).coerceIn(-maxRevealPx * 1.5f, 0f))
+                            }
+                        }
+                    )
+                },
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            onClick = {
+                if (offsetX.value < -10f) {
+                    coroutineScope.launch { offsetX.animateTo(0f) }
+                } else {
+                    onClick()
+                }
             }
-        },
-        content = {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .animateContentSize(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                onClick = onClick
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                // Emoji container
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(MaterialTheme.colorScheme.surface, CircleShape),
+                    contentAlignment = Alignment.Center
                 ) {
-                    // Emoji container
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .background(MaterialTheme.colorScheme.surface, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = eventState.request.eventEmoji,
-                            fontSize = 24.sp
+                    Text(
+                        text = eventState.request.eventEmoji,
+                        fontSize = 24.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                // Details
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = eventState.request.eventName.ifBlank { "Untitled Event" },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    
+                    val responded = eventState.responses.size
+                    val total = eventState.request.invitees.size
+                    val finalIndex = eventState.finalCellIndex
+                    
+                    if (finalIndex != null) {
+                        val config = com.example.cheese.data.GridConfig(
+                            eventState.request.startDateMillis,
+                            eventState.request.endDateMillis,
+                            eventState.request.startHour,
+                            eventState.request.endHour
                         )
-                    }
-
-                    Spacer(modifier = Modifier.width(16.dp))
-
-                    // Details
-                    Column(modifier = Modifier.weight(1f)) {
+                        val dayStr = config.cellToDay(finalIndex)
+                        val hourStr = config.cellToHour(finalIndex)
                         Text(
-                            text = eventState.request.eventName.ifBlank { "Untitled Event" },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
+                            text = "$dayStr, $hourStr",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    } else {
+                        Text(
+                            text = "$responded / $total responded",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        
-                        val responded = eventState.responses.size
-                        val total = eventState.request.invitees.size
-                        val finalIndex = eventState.finalCellIndex
-                        
-                        if (finalIndex != null) {
-                            val config = com.example.cheese.data.GridConfig(
-                                eventState.request.startDateMillis,
-                                eventState.request.endDateMillis,
-                                eventState.request.startHour,
-                                eventState.request.endHour
-                            )
-                            val dayStr = config.cellToDay(finalIndex)
-                            val hourStr = config.cellToHour(finalIndex)
-                            Text(
-                                text = "$dayStr, $hourStr",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        } else {
-                            Text(
-                                text = "$responded / $total responded",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
                     }
                 }
             }
         }
-    )
+    }
 }

@@ -190,8 +190,8 @@ class ScheduleViewModel : ViewModel() {
             eventName = template.name,
             startDateMillis = dateMillis,
             endDateMillis = dateMillis,
-            startHour = 8,
-            endHour = 22
+            startHour = 0,
+            endHour = 24
         )
         _eventRequest.value = newEvent
         _draftAvailability.value = emptySet()
@@ -210,7 +210,31 @@ class ScheduleViewModel : ViewModel() {
     }
 
     fun deleteEvent(eventId: String) {
-        db.collection("events").document(eventId).delete()
+        val currentUser = _currentUser.value ?: return
+        val eventState = _events.value.find { it.request.id == eventId } ?: return
+        
+        val isHost = eventState.request.invitees.find { it.name == currentUser }?.isHost == true
+
+        if (isHost) {
+            db.collection("events").document(eventId).delete()
+        } else {
+            val updatedInvitees = eventState.request.invitees.filter { it.name != currentUser }
+            val updatedInviteeNames = eventState.request.inviteeNames.filter { it != currentUser }
+            val updatedResponses = eventState.responses.toMutableMap()
+            updatedResponses.remove(currentUser)
+            
+            val updatedRequest = eventState.request.copy(
+                invitees = updatedInvitees,
+                inviteeNames = updatedInviteeNames
+            )
+            val newState = eventState.copy(request = updatedRequest, responses = updatedResponses)
+            
+            db.collection("events").document(eventId).set(newState)
+        }
+
+        // Eagerly remove from local state to immediately dismiss the UI component
+        _events.update { list -> list.filter { it.request.id != eventId } }
+
         if (_currentEventId.value == eventId) {
             _currentEventId.value = null
         }

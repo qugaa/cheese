@@ -55,8 +55,8 @@ data class EventRequest(
     val eventName: String = "",
     val startDateMillis: Long = 0L,
     val endDateMillis: Long = 0L,
-    val startHour: Int = 8,
-    val endHour: Int = 22,
+    val startHour: Int = 0,
+    val endHour: Int = 24,
     val invitees: List<Invitee> = emptyList(),
     val inviteeNames: List<String> = emptyList()
 )
@@ -91,8 +91,8 @@ data class EventState(
 data class GridConfig(
     val startDateMillis: Long, 
     val endDateMillis: Long,
-    val startHour: Int = 8,
-    val endHour: Int = 22
+    val startHour: Int = 0,
+    val endHour: Int = 24
 ) {
     /** Time slots: one row per hour. */
     val rows: Int = (endHour - startHour).coerceAtLeast(1)

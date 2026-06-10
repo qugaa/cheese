@@ -222,7 +222,6 @@ fun CheeseApp() {
                     }
                 },
                 onBackToDashboard = {
-                    scheduleViewModel.saveCurrentDraft()
                     navController.navigate("dashboard") {
                         popUpTo("dashboard") { inclusive = true }
                     }

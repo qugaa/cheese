@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -117,7 +118,7 @@ fun OrganizerScreen(
     val isFormValid = isEventNameValid && isDateRangeValid && hasInvitees
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { SnackbarHost(snackbarHostState, modifier = Modifier.imePadding()) },
         topBar = {
             TopAppBar(
                 title = { Text("Schedule New Event") },
@@ -542,7 +543,20 @@ fun OrganizerScreen(
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Save as Reusable Template", 
+                    "Date-only mode (e.g. for a multi-day trip)",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = eventRequest.dateOnlyMode,
+                    onCheckedChange = { viewModel.updateDateOnlyMode(it) }
+                )
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Save as Reusable Template",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f)
@@ -718,7 +732,9 @@ private fun MonthDaysGrid(
     startDate: LocalDate?,
     endDate: LocalDate?,
     minDate: LocalDate,
-    onDayClick: (LocalDate) -> Unit
+    onDayClick: (LocalDate) -> Unit,
+    maxDate: LocalDate? = null,
+    selectedDates: Set<LocalDate> = emptySet()
 ) {
     val daysInMonth = month.lengthOfMonth()
     // ISO day-of-week: Monday = 1 … Sunday = 7 → blank cells before day 1.
@@ -737,8 +753,10 @@ private fun MonthDaysGrid(
                         val date = month.atDay(dayOfMonth)
                         DayCell(
                             day = dayOfMonth,
-                            enabled = !date.isBefore(minDate),
-                            isAnchor = date == startDate || date == endDate,
+                            enabled = !date.isBefore(minDate) &&
+                                (maxDate == null || !date.isAfter(maxDate)),
+                            isAnchor = date == startDate || date == endDate ||
+                                date in selectedDates,
                             inRange = startDate != null && endDate != null &&
                                 date.isAfter(startDate) && date.isBefore(endDate),
                             modifier = Modifier.weight(1f),
@@ -749,6 +767,113 @@ private fun MonthDaysGrid(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * A horizontal-swipe month calendar with *multi-select* day semantics, used by
+ * the participant date-first flow (and date-only mode). Visually identical to
+ * [HorizontalMonthCalendar] but each tap toggles an individual day instead of
+ * driving a contiguous range. Days outside [minDate]..[maxDate] are disabled.
+ */
+@Composable
+fun MultiSelectMonthCalendar(
+    selectedDayMillis: Set<Long>,
+    minDateMillis: Long,
+    maxDateMillis: Long,
+    onDayToggled: (Long) -> Unit
+) {
+    val minDate = remember(minDateMillis) { minDateMillis.toUtcLocalDate() }
+    val maxDate = remember(maxDateMillis) { maxDateMillis.toUtcLocalDate() }
+    val baseMonth = remember(minDate) { YearMonth.from(minDate) }
+    val pageCount = remember(minDate, maxDate) {
+        (java.time.temporal.ChronoUnit.MONTHS.between(YearMonth.from(minDate), YearMonth.from(maxDate)).toInt() + 1)
+            .coerceAtLeast(1)
+    }
+    val pagerState = rememberPagerState(pageCount = { pageCount })
+    val scope = rememberCoroutineScope()
+
+    val selectedDates = remember(selectedDayMillis) {
+        selectedDayMillis.map { it.toUtcLocalDate() }.toSet()
+    }
+
+    val visibleMonth = baseMonth.plusMonths(pagerState.currentPage.toLong())
+    val monthLabel =
+        "${visibleMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault())} ${visibleMonth.year}"
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+
+        // ── Month navigation header ──────────────────────────────────────────
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = {
+                    scope.launch {
+                        pagerState.animateScrollToPage((pagerState.currentPage - 1).coerceAtLeast(0))
+                    }
+                },
+                enabled = pagerState.currentPage > 0
+            ) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous month")
+            }
+            Text(
+                text = monthLabel,
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            IconButton(
+                onClick = {
+                    scope.launch {
+                        pagerState.animateScrollToPage(
+                            (pagerState.currentPage + 1).coerceAtMost(pageCount - 1)
+                        )
+                    }
+                },
+                enabled = pagerState.currentPage < pageCount - 1
+            ) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next month")
+            }
+        }
+
+        // ── Static weekday header (does not page) ────────────────────────────
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su").forEach { label ->
+                Text(
+                    text = label,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // ── Paged month-day grids (horizontal swipe = change month) ──────────
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(296.dp)
+        ) { page ->
+            MonthDaysGrid(
+                month = baseMonth.plusMonths(page.toLong()),
+                startDate = null,
+                endDate = null,
+                minDate = minDate,
+                maxDate = maxDate,
+                selectedDates = selectedDates,
+                onDayClick = { date -> onDayToggled(date.toUtcMillis()) }
+            )
         }
     }
 }
@@ -791,8 +916,8 @@ private fun DayCell(
 }
 
 /** Epoch millis at UTC start-of-day — matches the convention used by GridConfig. */
-private fun LocalDate.toUtcMillis(): Long =
+internal fun LocalDate.toUtcMillis(): Long =
     this.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
 
-private fun Long.toUtcLocalDate(): LocalDate =
+internal fun Long.toUtcLocalDate(): LocalDate =
     Instant.ofEpochMilli(this).atZone(ZoneOffset.UTC).toLocalDate()

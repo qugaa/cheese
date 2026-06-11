@@ -48,6 +48,9 @@ data class Invitee(
  * @property startDateMillis Epoch millis for the first eligible day.
  * @property endDateMillis   Epoch millis for the last eligible day.
  * @property invitees        Ordered list of participants (with assigned colors/roles).
+ * @property dateOnlyMode    When true (e.g. multi-day trips), participants pick
+ *                           whole dates instead of hourly time slots, and the
+ *                           final selection is a date rather than a time slot.
  */
 data class EventRequest(
     val id: String = UUID.randomUUID().toString(),
@@ -58,7 +61,8 @@ data class EventRequest(
     val startHour: Int = 0,
     val endHour: Int = 24,
     val invitees: List<Invitee> = emptyList(),
-    val inviteeNames: List<String> = emptyList()
+    val inviteeNames: List<String> = emptyList(),
+    val dateOnlyMode: Boolean = false
 )
 
 /**

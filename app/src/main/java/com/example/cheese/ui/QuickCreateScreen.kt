@@ -64,7 +64,7 @@ fun QuickCreateScreen(
                 )
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(snackbarHostState, modifier = Modifier.imePadding()) }
     ) { innerPadding ->
         Column(
             modifier = Modifier

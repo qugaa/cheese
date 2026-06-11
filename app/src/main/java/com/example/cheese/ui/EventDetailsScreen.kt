@@ -130,7 +130,7 @@ fun EventDetailsScreen(
                         else "Not specified"
                     )
                     SummaryRow(label = "Day", value = dayLabel)
-                    SummaryRow(label = "Time", value = hourLabel)
+                    SummaryRow(label = "Time", value = if (eventRequest.dateOnlyMode) "All day" else hourLabel)
                     SummaryRow(
                         label = "Consensus",
                         value = "$consensusCount / $totalParticipants participants ($consensusPct%)"

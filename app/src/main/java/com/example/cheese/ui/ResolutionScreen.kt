@@ -1,11 +1,6 @@
 package com.example.cheese.ui
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -105,8 +100,15 @@ fun ResolutionScreen(
     val finalCellIndex = eventState?.finalCellIndex
     val responses = eventState?.responses ?: emptyMap()
 
-    val gridConfig = remember(eventRequest.startDateMillis, eventRequest.endDateMillis) {
-        GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis)
+    val dateOnly = eventRequest.dateOnlyMode
+
+    val gridConfig = remember(eventRequest.startDateMillis, eventRequest.endDateMillis, dateOnly) {
+        if (dateOnly) {
+            // One row per day: aggregation happens by date, not time slot
+            GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis, 0, 1)
+        } else {
+            GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis)
+        }
     }
 
     val heatmap = remember(responses) { viewModel.computeHeatmap(gridConfig) }
@@ -116,7 +118,19 @@ fun ResolutionScreen(
     var showBottomSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    var selectedCell by remember(optimalCell) { mutableStateOf(optimalCell) }
+    // Organizer's selection is a time range (startCell, endCell).
+    // First tap sets the anchor (start == end); a second tap in the same column
+    // or later closes the range; tapping the anchor again cancels.
+    var selectedRange by remember(optimalCell) {
+        mutableStateOf(optimalCell?.let { it to it })
+    }
+
+    // Time-order key: column (day) first, then row (hour).
+    fun timeKey(index: Int): Int =
+        (index % gridConfig.cols) * gridConfig.rows + (index / gridConfig.cols)
+
+    // The cell that starts the selected range, in time order.
+    val startCell = selectedRange?.let { (a, b) -> if (timeKey(a) <= timeKey(b)) a else b }
 
     Scaffold(
         topBar = {
@@ -209,7 +223,7 @@ fun ResolutionScreen(
                             RoundedCornerShape(2.dp)
                         )
                 )
-                Text("Optimal", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text("Selected", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
             }
 
             // Heatmap grid with horizontal + vertical scrolling
@@ -223,9 +237,30 @@ fun ResolutionScreen(
                     gridConfig = gridConfig,
                     heatmap = heatmap,
                     totalParticipants = totalParticipants,
-                    optimalCell = optimalCell,
-                    selectedCell = selectedCell,
-                    onCellTapped = { selectedCell = it }
+                    dateOnly = dateOnly,
+                    selectedRange = selectedRange,
+                    onCellTapped = { tapped ->
+                        val current = selectedRange
+                        selectedRange = when {
+                            // No selection yet → set the anchor
+                            current == null -> tapped to tapped
+
+                            // Tapping the open anchor again → cancel
+                            current.first == current.second && tapped == current.first -> null
+
+                            // Anchor is open → close the range if the tap is in the
+                            // same column or later; otherwise re-anchor
+                            current.first == current.second -> {
+                                val anchorCol = current.first % gridConfig.cols
+                                val tappedCol = tapped % gridConfig.cols
+                                if (tappedCol >= anchorCol) current.first to tapped
+                                else tapped to tapped
+                            }
+
+                            // Range already closed → start a new anchor
+                            else -> tapped to tapped
+                        }
+                    }
                 )
             }
 
@@ -235,13 +270,14 @@ fun ResolutionScreen(
             ) {
                 Button(
                     onClick = {
-                        selectedCell?.let { viewModel.setFinalEvent(it) }
+                        // Store only the start of the range for now (range end is a follow-up)
+                        startCell?.let { viewModel.setFinalEvent(it) }
                         showBottomSheet = true
                     },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    enabled = selectedCell != null,
+                    enabled = selectedRange != null,
                     shape = RoundedCornerShape(28.dp)
                 ) {
                     Text("Set Final Event")
@@ -259,7 +295,8 @@ fun ResolutionScreen(
             FinalSummarySheet(
                 gridConfig = gridConfig,
                 eventRequest = eventRequest,
-                selectedCell = selectedCell,
+                dateOnly = dateOnly,
+                selectedCell = startCell,
                 responses = responses,
                 totalParticipants = totalParticipants,
                 heatmap = heatmap,
@@ -281,23 +318,22 @@ private fun HeatmapGrid(
     gridConfig: GridConfig,
     heatmap: Map<Int, Int>,
     totalParticipants: Int,
-    optimalCell: Int?,
-    selectedCell: Int?,
-    onCellTapped: (Int) -> Unit
+    selectedRange: Pair<Int, Int>?,
+    onCellTapped: (Int) -> Unit,
+    dateOnly: Boolean = false
 ) {
     val labelColWidth = 48.dp
     val cellHeight = 40.dp
 
-    val infiniteTransition = rememberInfiniteTransition(label = "optimalPulse")
-    val pulseWidth by infiniteTransition.animateFloat(
-        initialValue = 2f,
-        targetValue = 4f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 800),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseBorderWidth"
-    )
+    // Time-order key: column (day) first, then row (hour).
+    fun timeKey(index: Int): Int =
+        (index % gridConfig.cols) * gridConfig.rows + (index / gridConfig.cols)
+
+    val rangeKeys: IntRange? = selectedRange?.let { (a, b) ->
+        val ka = timeKey(a)
+        val kb = timeKey(b)
+        minOf(ka, kb)..maxOf(ka, kb)
+    }
 
     BoxWithConstraints(
         modifier = Modifier.fillMaxWidth()
@@ -320,7 +356,7 @@ private fun HeatmapGrid(
                         contentAlignment = Alignment.CenterEnd
                     ) {
                         Text(
-                            text = label,
+                            text = if (dateOnly) "" else label,
                             fontSize = 9.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(end = 4.dp)
@@ -361,21 +397,7 @@ private fun HeatmapGrid(
                             val count = heatmap[cellIndex] ?: 0
                             val safeTotal = totalParticipants.coerceAtLeast(1)
                             val ratio = count.toFloat() / safeTotal
-                            val isOptimal = cellIndex == optimalCell
-                            val isSelected = cellIndex == selectedCell
-
-                            val borderWidth = when {
-                                isOptimal -> pulseWidth.dp
-                                isSelected -> 2.dp
-                                else -> 0.5.dp
-                            }
-                            val tertiaryColor = MaterialTheme.colorScheme.tertiary
-                            val outlineColor = MaterialTheme.colorScheme.outline
-                            val borderColor = when {
-                                isOptimal -> tertiaryColor
-                                isSelected -> tertiaryColor.copy(alpha = 0.7f)
-                                else -> outlineColor.copy(alpha = 0.2f)
-                            }
+                            val isSelected = rangeKeys != null && timeKey(cellIndex) in rangeKeys
 
                             Box(
                                 modifier = Modifier
@@ -388,10 +410,11 @@ private fun HeatmapGrid(
                                         else MaterialTheme.colorScheme.surfaceVariant
                                     )
                                     .then(
-                                        if (isOptimal || isSelected) {
+                                        if (isSelected) {
+                                            // Static border for the selected range (pulse removed)
                                             Modifier.border(
-                                                width = borderWidth,
-                                                color = borderColor,
+                                                width = 2.dp,
+                                                color = MaterialTheme.colorScheme.tertiary,
                                                 shape = RoundedCornerShape(6.dp)
                                             )
                                         } else Modifier
@@ -421,6 +444,7 @@ private fun FinalSummarySheet(
     gridConfig: GridConfig,
     eventRequest: EventRequest,
     selectedCell: Int?,
+    dateOnly: Boolean = false,
     responses: Map<String, ParticipantResponse>,
     totalParticipants: Int,
     heatmap: Map<Int, Int>,
@@ -460,7 +484,7 @@ private fun FinalSummarySheet(
             else "Not specified"
         )
         SummaryRow(label = "Day", value = dayLabel)
-        SummaryRow(label = "Time", value = hourLabel)
+        SummaryRow(label = "Time", value = if (dateOnly) "All day" else hourLabel)
         SummaryRow(
             label = "Consensus",
             value = "$consensusCount / $totalParticipants participants ($consensusPct%)"
@@ -474,8 +498,10 @@ private fun FinalSummarySheet(
             color = MaterialTheme.colorScheme.primary
         )
 
-        val gridConfig = GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis, eventRequest.startHour, eventRequest.endHour)
-        val selectedTimestamp = selectedCell?.let { gridConfig.cellToTimestamp(it) }
+        val availabilityConfig =
+            if (dateOnly) gridConfig
+            else GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis, eventRequest.startHour, eventRequest.endHour)
+        val selectedTimestamp = selectedCell?.let { availabilityConfig.cellToTimestamp(it) }
 
         eventRequest.invitees.forEach { invitee ->
             val response = responses[invitee.name]

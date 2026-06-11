@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
@@ -28,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import com.example.cheese.data.EventState
 import com.example.cheese.data.EventTemplate
 import com.example.cheese.viewmodel.ScheduleViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.example.cheese.ui.theme.CuratedParticipantColors
 import com.example.cheese.data.GridConfig
@@ -95,7 +97,7 @@ fun DashboardScreen(
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState, modifier = Modifier.imePadding()) },
         topBar = {
             TopAppBar(
                 title = { Text(currentUser?.let { "Welcome, $it" } ?: "My Events") },
@@ -217,8 +219,32 @@ fun DashboardScreen(
                 var searchQuery by remember { mutableStateOf("") }
                 val haptic = LocalHapticFeedback.current
 
+                // Firestore user search (debounced) + just-added tracking for the + → ✓ flow
+                var dbResults by remember { mutableStateOf<List<String>>(emptyList()) }
+                var searchCompleted by remember { mutableStateOf(false) }
+                var justAdded by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+                LaunchedEffect(searchQuery) {
+                    searchCompleted = false
+                    if (searchQuery.isBlank()) {
+                        dbResults = emptyList()
+                        return@LaunchedEffect
+                    }
+                    delay(300) // debounce while the user is typing
+                    viewModel.searchUsers(searchQuery) { results ->
+                        dbResults = results
+                        searchCompleted = true
+                    }
+                }
+
                 val filteredFriends = friends.filter {
                     it.name.contains(searchQuery, ignoreCase = true)
+                }
+                val friendNames = friends.map { it.name }.toSet()
+                // Users found in the DB who are not yet friends (and not the current user).
+                // Keep just-added names visible briefly so the ✓ can be shown before the row disappears.
+                val nonFriendResults = dbResults.filter { name ->
+                    name != currentUser && (name !in friendNames || name in justAdded)
                 }
 
                 Column(modifier = Modifier.fillMaxSize()) {
@@ -262,31 +288,88 @@ fun DashboardScreen(
                             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                         }
 
-                        // Add friend item if query is not blank and no exact match
-                        if (searchQuery.isNotBlank() && friends.none { it.name.equals(searchQuery, ignoreCase = true) }) {
+                        // Users in the DB who are not yet friends
+                        if (searchQuery.isNotBlank() && nonFriendResults.isNotEmpty()) {
                             item {
+                                Text(
+                                    text = "People on Cheese",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp)
+                                )
+                            }
+                            items(nonFriendResults, key = { "db_$it" }) { name ->
+                                val added = name in justAdded
                                 ListItem(
-                                    headlineContent = { Text("Add '$searchQuery' as friend", color = MaterialTheme.colorScheme.primary) },
+                                    headlineContent = { Text(name, fontWeight = FontWeight.SemiBold) },
                                     leadingContent = {
                                         Box(
                                             modifier = Modifier
                                                 .size(40.dp)
-                                                .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                                                .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Icon(Icons.Default.Person, contentDescription = "Add", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                                            Text(
+                                                text = name.firstOrNull()?.uppercase() ?: "?",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontWeight = FontWeight.Bold
+                                            )
                                         }
                                     },
-                                    modifier = Modifier.clickable {
-                                        viewModel.addFriend(searchQuery.trim()) { success, msg ->
-                                            coroutineScope.launch {
-                                                snackbarHostState.showSnackbar(msg)
-                                            }
-                                            if (success) {
-                                                searchQuery = ""
+                                    trailingContent = {
+                                        if (added) {
+                                            Icon(
+                                                Icons.Default.Check,
+                                                contentDescription = "Added",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        } else {
+                                            IconButton(onClick = {
+                                                viewModel.addFriend(name) { success, msg ->
+                                                    if (success) {
+                                                        justAdded = justAdded + name
+                                                        coroutineScope.launch {
+                                                            // Show the checkmark for a moment, then let the row disappear
+                                                            delay(1200)
+                                                            justAdded = justAdded - name
+                                                        }
+                                                    } else {
+                                                        coroutineScope.launch { snackbarHostState.showSnackbar(msg) }
+                                                    }
+                                                }
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            }) {
+                                                Icon(
+                                                    Icons.Default.Add,
+                                                    contentDescription = "Add $name as friend",
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
                                             }
                                         }
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    }
+                                )
+                                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                            }
+                        }
+
+                        // No user found anywhere
+                        if (searchQuery.isNotBlank() && searchCompleted &&
+                            filteredFriends.isEmpty() && nonFriendResults.isEmpty()
+                        ) {
+                            item {
+                                ListItem(
+                                    headlineContent = {
+                                        Text(
+                                            "No user found",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    },
+                                    leadingContent = {
+                                        Icon(
+                                            Icons.Default.Person,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 )
                             }
@@ -459,7 +542,7 @@ fun EventCard(
                         val dayStr = config.cellToDay(finalIndex)
                         val hourStr = config.cellToHour(finalIndex)
                         Text(
-                            text = "$dayStr, $hourStr",
+                            text = if (eventState.request.dateOnlyMode) "$dayStr (all day)" else "$dayStr, $hourStr",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary

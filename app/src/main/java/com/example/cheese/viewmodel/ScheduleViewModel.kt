@@ -104,10 +104,10 @@ class ScheduleViewModel : ViewModel() {
             return
         }
 
-        db.collection("users").document(friendName).get().addOnSuccessListener { doc ->
+        db.collection("users").document(friendName).get().addOnSuccessListener { doc: com.google.firebase.firestore.DocumentSnapshot ->
             if (doc.exists()) {
                 val userRef = db.collection("users").document(current)
-                userRef.get().addOnSuccessListener { userDoc ->
+                userRef.get().addOnSuccessListener { userDoc: com.google.firebase.firestore.DocumentSnapshot ->
                     val existingFriends = userDoc.get("friends") as? List<String> ?: emptyList()
                     if (!existingFriends.contains(friendName)) {
                         val newFriends = existingFriends + friendName
@@ -122,6 +122,33 @@ class ScheduleViewModel : ViewModel() {
                 onResult(false, "User '$friendName' not found.")
             }
         }
+    }
+
+    fun searchUsers(query: String, onResult: (List<String>) -> Unit) {
+        val q = query.trim()
+        if (q.isBlank()) {
+            onResult(emptyList())
+            return
+        }
+        db.collection("users")
+            .orderBy(com.google.firebase.firestore.FieldPath.documentId())
+            .startAt(q)
+            .endAt(q + "\uf8ff")
+            .limit(20)
+            .get()
+            .addOnSuccessListener { snapshot: com.google.firebase.firestore.QuerySnapshot ->
+                val prefixMatches = snapshot.documents.map { it.id }
+                if (prefixMatches.isNotEmpty()) {
+                    onResult(prefixMatches)
+                } else {
+                    db.collection("users").limit(100).get()
+                        .addOnSuccessListener { all: com.google.firebase.firestore.QuerySnapshot ->
+                            onResult(all.documents.map { it.id }.filter { it.contains(q, ignoreCase = true) })
+                        }
+                        .addOnFailureListener { onResult(emptyList()) }
+                }
+            }
+            .addOnFailureListener { onResult(emptyList()) }
     }
 
     fun removeFriend(name: String) {
@@ -270,6 +297,10 @@ class ScheduleViewModel : ViewModel() {
         }
     }
 
+    fun updateDateOnlyMode(enabled: Boolean) {
+        _eventRequest.update { it.copy(dateOnlyMode = enabled) }
+    }
+
     fun updateStartDate(millis: Long) {
         _eventRequest.update { it.copy(startDateMillis = millis) }
     }
@@ -290,7 +321,7 @@ class ScheduleViewModel : ViewModel() {
         }
 
         // Verify user exists in Firestore
-        db.collection("users").document(name).get().addOnSuccessListener { snapshot ->
+        db.collection("users").document(name).get().addOnSuccessListener { snapshot: com.google.firebase.firestore.DocumentSnapshot ->
             if (snapshot.exists()) {
                 val newColor = nextUniqueColorIndex(currentReq.invitees.map { it.colorIndex })
                 val isHost = currentReq.invitees.isEmpty()
@@ -368,6 +399,42 @@ class ScheduleViewModel : ViewModel() {
     private val _draftAvailability = MutableStateFlow<Set<Int>>(emptySet())
     val draftAvailability: StateFlow<Set<Int>> = _draftAvailability.asStateFlow()
 
+    private val _selectedDates = MutableStateFlow<Set<Long>>(emptySet())
+    val selectedDates: StateFlow<Set<Long>> = _selectedDates.asStateFlow()
+
+    fun toggleSelectedDate(dayMillis: Long) {
+        _selectedDates.update { current ->
+            if (dayMillis in current) current - dayMillis else current + dayMillis
+        }
+    }
+
+    fun clearSelectedDates() {
+        _selectedDates.value = emptySet()
+    }
+
+    fun pruneDraftToSelectedDates() {
+        val eventId = _currentEventId.value ?: return
+        val request = _events.value.find { it.request.id == eventId }?.request ?: _eventRequest.value
+        if (request.startDateMillis <= 0L) return
+        val config = GridConfig(request.startDateMillis, request.endDateMillis, request.startHour, request.endHour)
+        val allowedCols = _selectedDates.value
+            .map { ((it - request.startDateMillis) / 86400000L).toInt() }
+            .toSet()
+        _draftAvailability.update { current ->
+            current.filter { idx -> (idx % config.cols) in allowedCols }.toSet()
+        }
+    }
+
+    fun setSelectedDatesFromDraft() {
+        val eventId = _currentEventId.value ?: return
+        val request = _events.value.find { it.request.id == eventId }?.request ?: _eventRequest.value
+        if (request.startDateMillis <= 0L) return
+        val config = GridConfig(request.startDateMillis, request.endDateMillis, request.startHour, request.endHour)
+        _selectedDates.value = _draftAvailability.value
+            .map { idx -> request.startDateMillis + (idx % config.cols) * 86400000L }
+            .toSet()
+    }
+
     fun currentInvitee(): Invitee? {
         val request = _events.value.find { it.request.id == _currentEventId.value }?.request ?: _eventRequest.value
         val name = _currentUser.value ?: return null
@@ -439,6 +506,28 @@ class ScheduleViewModel : ViewModel() {
 
     fun submitAvailability() {
         saveCurrentDraft()
+        _draftAvailability.value = emptySet()
+    }
+
+    fun loadDateOnlyDraft() {
+        val invitee = currentInvitee() ?: return
+        val eventId = _currentEventId.value ?: return
+        val state = _events.value.find { it.request.id == eventId }
+        val timestamps = state?.responses?.get(invitee.name)?.availability ?: emptyList()
+        _selectedDates.value = timestamps.toSet()
+        _draftAvailability.value = emptySet()
+    }
+
+    fun submitDateOnlyAvailability() {
+        val invitee = currentInvitee() ?: return
+        val eventId = _currentEventId.value ?: return
+        val state = _events.value.find { it.request.id == eventId } ?: return
+
+        val timestamps = _selectedDates.value.toList()
+        val updatedResponses = state.responses + (invitee.name to ParticipantResponse(invitee.name, timestamps))
+        db.collection("events").document(eventId).set(state.copy(responses = updatedResponses))
+
+        _selectedDates.value = emptySet()
         _draftAvailability.value = emptySet()
     }
 

@@ -24,7 +24,7 @@ fun FriendDetailsScreen(
     onOpenEvent: (String) -> Unit
 ) {
     val events by viewModel.events.collectAsState()
-    
+
     // Filter events involving this friend
     val sharedEvents = events.filter { event ->
         event.request.invitees.any { it.name == friendName }

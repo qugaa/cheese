@@ -96,7 +96,7 @@ private fun heatColor(ratio: Float): Color {
 @Composable
 fun ParticipantScreen(
     viewModel: ScheduleViewModel,
-    onSubmitted: (Boolean) -> Unit,
+    onSubmitted: (String?) -> Unit,
     onEditEvent: () -> Unit,
     onBackToDashboard: () -> Unit
 ) {
@@ -175,6 +175,7 @@ fun ParticipantScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     val isEmpty = draftAvailability.isEmpty()
+                    val hasSubmittedBefore = responses.containsKey(participantName)
                     Button(
                         onClick = {
                             scope.launch {
@@ -182,14 +183,15 @@ fun ParticipantScreen(
                                 snackbarHostState.showSnackbar(msg)
                             }
                             viewModel.submitAvailability()
-                            onSubmitted(true)
+                            val dashboardMsg = if (isOrganizer && !hasSubmittedBefore) "Event Created" else null
+                            onSubmitted(dashboardMsg)
                         },
                         modifier = Modifier.weight(1f),
                         enabled = if (isOrganizer) !isEmpty else true,
                         colors = if (!isOrganizer && isEmpty) androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else androidx.compose.material3.ButtonDefaults.buttonColors(),
                         shape = RoundedCornerShape(28.dp)
                     ) {
-                        Text(if (isOrganizer) "Send Event" else if (isEmpty) "Not Available" else "Submit Availability")
+                        Text(if (isOrganizer && !hasSubmittedBefore) "Send Event" else if (isEmpty) "Not Available" else "Submit Availability")
                     }
                 }
             }

@@ -213,7 +213,7 @@ class ScheduleViewModel : ViewModel() {
         val currentUser = _currentUser.value ?: return
         val eventState = _events.value.find { it.request.id == eventId } ?: return
         
-        val isHost = eventState.request.invitees.find { it.name == currentUser }?.isHost == true
+        val isHost = eventState.request.invitees.firstOrNull()?.name == currentUser
 
         if (isHost) {
             db.collection("events").document(eventId).delete()

@@ -191,23 +191,12 @@ fun CheeseApp() {
         composable("participant") {
             ParticipantScreen(
                 viewModel = scheduleViewModel,
-                onSubmitted = {
-                    val currentId = scheduleViewModel.currentEventId.value
-                    if (currentId != null) {
-                        val state = scheduleViewModel.events.value.find { it.request.id == currentId }
-                        val currentUser = scheduleViewModel.currentUser.value
-                        val isHost = state?.request?.invitees?.firstOrNull()?.name == currentUser
-                        
-                        if (isHost) {
-                            scheduleViewModel.setDashboardMessage("Event Created")
-                        }
-                        navController.navigate("dashboard") {
-                            popUpTo("dashboard") { inclusive = true }
-                        }
-                    } else {
-                        navController.navigate("dashboard") {
-                            popUpTo("dashboard") { inclusive = true }
-                        }
+                onSubmitted = { dashboardMsg ->
+                    if (dashboardMsg != null) {
+                        scheduleViewModel.setDashboardMessage(dashboardMsg)
+                    }
+                    navController.navigate("dashboard") {
+                        popUpTo("dashboard") { inclusive = true }
                     }
                 },
                 onEditEvent = {

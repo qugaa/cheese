@@ -101,7 +101,7 @@ private fun heatColor(ratio: Float): Color {
 @Composable
 fun ParticipantScreen(
     viewModel: ScheduleViewModel,
-    onSubmitted: (Boolean) -> Unit,
+    onSubmitted: (String?) -> Unit,
     onEditEvent: () -> Unit,
     onBackToDashboard: () -> Unit
 ) {
@@ -226,6 +226,8 @@ fun ParticipantScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    val hasSubmittedBefore = responses.containsKey(participantName)
+
                     if (dateOnly) {
                         // Date-only mode: the calendar selection IS the response
                         val noDates = selectedDates.isEmpty()
@@ -236,14 +238,15 @@ fun ParticipantScreen(
                                     snackbarHostState.showSnackbar(msg)
                                 }
                                 viewModel.submitDateOnlyAvailability()
-                                onSubmitted(true)
+                                val dashboardMsg = if (isOrganizer && !hasSubmittedBefore) "Event Created" else null
+                                onSubmitted(dashboardMsg)
                             },
                             modifier = Modifier.weight(1f),
                             enabled = if (isOrganizer) !noDates else true,
                             colors = if (!isOrganizer && noDates) androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else androidx.compose.material3.ButtonDefaults.buttonColors(),
                             shape = RoundedCornerShape(28.dp)
                         ) {
-                            Text(if (isOrganizer) "Send Event" else if (noDates) "Not Available" else "Submit Dates")
+                            Text(if (isOrganizer && !hasSubmittedBefore) "Send Event" else if (noDates) "Not Available" else "Submit Dates")
                         }
                     } else if (!isOrganizer && step == 1) {
                         // Step 1 CTA: advance to the time grid, or mark not available
@@ -253,7 +256,8 @@ fun ParticipantScreen(
                                 if (noDates) {
                                     scope.launch { snackbarHostState.showSnackbar("Marked as not available") }
                                     viewModel.submitAvailability()
-                                    onSubmitted(true)
+                                    val dashboardMsg = if (isOrganizer && !hasSubmittedBefore) "Event Created" else null
+                                    onSubmitted(dashboardMsg)
                                 } else {
                                     viewModel.pruneDraftToSelectedDates()
                                     step = 2
@@ -274,14 +278,15 @@ fun ParticipantScreen(
                                     snackbarHostState.showSnackbar(msg)
                                 }
                                 viewModel.submitAvailability()
-                                onSubmitted(true)
+                                val dashboardMsg = if (isOrganizer && !hasSubmittedBefore) "Event Created" else null
+                                onSubmitted(dashboardMsg)
                             },
                             modifier = Modifier.weight(1f),
                             enabled = if (isOrganizer) !isEmpty else true,
                             colors = if (!isOrganizer && isEmpty) androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else androidx.compose.material3.ButtonDefaults.buttonColors(),
                             shape = RoundedCornerShape(28.dp)
                         ) {
-                            Text(if (isOrganizer) "Send Event" else if (isEmpty) "Not Available" else "Submit Availability")
+                            Text(if (isOrganizer && !hasSubmittedBefore) "Send Event" else if (isEmpty) "Not Available" else "Submit Availability")
                         }
                     }
                 }

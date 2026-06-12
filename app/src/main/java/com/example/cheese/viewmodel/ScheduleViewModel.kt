@@ -50,7 +50,8 @@ class ScheduleViewModel : ViewModel() {
                 // Create new user
                 val newUser = hashMapOf(
                     "name" to username,
-                    "friends" to emptyList<String>()
+                    "friends" to emptyList<String>(),
+                    "templates" to emptyList<Map<String, Any>>()
                 )
                 docRef.set(newUser).addOnSuccessListener {
                     _currentUser.value = username
@@ -70,6 +71,7 @@ class ScheduleViewModel : ViewModel() {
         _currentUser.value = null
         _friends.value = emptyList()
         _events.value = emptyList()
+        _templates.value = emptyList()
     }
 
     private fun setupRealtimeListeners(username: String) {
@@ -80,6 +82,18 @@ class ScheduleViewModel : ViewModel() {
             // Map string array to local Friend UI objects (assigning arbitrary colors)
             _friends.value = friendsList.mapIndexed { idx, name ->
                 Friend(name = name, colorIndex = CuratedParticipantColors.indices.random())
+            }
+
+            val templatesMapList = snapshot.get("templates") as? List<Map<String, Any>> ?: emptyList()
+            _templates.value = templatesMapList.mapNotNull { map ->
+                try {
+                    EventTemplate(
+                        id = map["id"] as? String ?: java.util.UUID.randomUUID().toString(),
+                        emoji = map["emoji"] as? String ?: "",
+                        name = map["name"] as? String ?: "",
+                        invitees = map["invitees"] as? List<String> ?: emptyList()
+                    )
+                } catch (e: Exception) { null }
             }
         }
 
@@ -190,33 +204,16 @@ class ScheduleViewModel : ViewModel() {
 
     // ── Templates ─────────────────────────────────────────────────────────────
 
-    private val _templates = MutableStateFlow<List<EventTemplate>>(
-        listOf(
-            EventTemplate(emoji = "🍿", name = "Cinema", dateOffset = DateOffset.TOMORROW),
-            EventTemplate(emoji = "🍻", name = "Bar", dateOffset = DateOffset.TODAY),
-            EventTemplate(emoji = "📚", name = "Study Session", dateOffset = DateOffset.WEEKEND)
-        )
-    )
+    private val _templates = MutableStateFlow<List<EventTemplate>>(emptyList())
     val templates: StateFlow<List<EventTemplate>> = _templates.asStateFlow()
 
     fun createFromTemplate(template: EventTemplate) {
         val today = LocalDate.now(ZoneOffset.UTC)
-        val date = when (template.dateOffset) {
-            DateOffset.TODAY -> today
-            DateOffset.TOMORROW -> today.plusDays(1)
-            DateOffset.WEEKEND -> {
-                if (today.dayOfWeek == DayOfWeek.SATURDAY || today.dayOfWeek == DayOfWeek.SUNDAY) today
-                else today.with(TemporalAdjusters.next(DayOfWeek.SATURDAY))
-            }
-            DateOffset.CUSTOM -> today
-        }
-        val dateMillis = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-
         val newEvent = EventRequest(
             eventEmoji = template.emoji,
             eventName = template.name,
-            startDateMillis = dateMillis,
-            endDateMillis = dateMillis,
+            startDateMillis = 0L,
+            endDateMillis = 0L,
             startHour = 0,
             endHour = 24
         )
@@ -226,10 +223,42 @@ class ScheduleViewModel : ViewModel() {
         
         val currentName = _currentUser.value ?: return
         addInviteeWithoutVerification(currentName)
+        
+        template.invitees.forEach { inviteeName ->
+            if (inviteeName != currentName) {
+                addInviteeWithoutVerification(inviteeName)
+            }
+        }
+    }
+
+    fun hasMatchingTemplate(emoji: String, name: String, invitees: List<String>): Boolean {
+        return _templates.value.any { 
+            it.emoji == emoji && 
+            it.name == name && 
+            it.invitees.toSet() == invitees.toSet() 
+        }
     }
 
     fun saveTemplate(template: EventTemplate) {
-        _templates.update { it + template }
+        val currentUsername = _currentUser.value ?: return
+        if (!hasMatchingTemplate(template.emoji, template.name, template.invitees)) {
+            val newList = _templates.value + template
+            _templates.value = newList
+            val serializedList = newList.map { 
+                mapOf("id" to it.id, "emoji" to it.emoji, "name" to it.name, "invitees" to it.invitees)
+            }
+            db.collection("users").document(currentUsername).update("templates", serializedList)
+        }
+    }
+
+    fun deleteTemplate(template: EventTemplate) {
+        val currentUsername = _currentUser.value ?: return
+        val newList = _templates.value.filter { it.id != template.id }
+        _templates.value = newList
+        val serializedList = newList.map { 
+            mapOf("id" to it.id, "emoji" to it.emoji, "name" to it.name, "invitees" to it.invitees)
+        }
+        db.collection("users").document(currentUsername).update("templates", serializedList)
     }
 
     fun selectEvent(eventId: String) {

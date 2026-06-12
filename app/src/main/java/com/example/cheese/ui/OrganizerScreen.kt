@@ -106,7 +106,12 @@ fun OrganizerScreen(
     val haptic = LocalHapticFeedback.current
 
     var inviteeInput by remember { mutableStateOf("") }
-    var saveAsTemplate by remember { mutableStateOf(false) }
+    val hasMatching = viewModel.hasMatchingTemplate(
+        eventRequest.eventEmoji, 
+        eventRequest.eventName, 
+        eventRequest.invitees.map { it.name }
+    )
+    var saveAsTemplate by remember(hasMatching) { mutableStateOf(hasMatching) }
 
     var emojiList by remember { mutableStateOf(COMMON_EMOJIS) }
     var showAddEmojiDialog by remember { mutableStateOf(false) }
@@ -571,7 +576,7 @@ fun OrganizerScreen(
                             EventTemplate(
                                 emoji = eventRequest.eventEmoji,
                                 name = eventRequest.eventName,
-                                dateOffset = DateOffset.CUSTOM
+                                invitees = eventRequest.invitees.map { it.name }
                             )
                         )
                     }

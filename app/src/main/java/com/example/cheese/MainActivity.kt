@@ -17,7 +17,6 @@ import com.example.cheese.ui.ParticipantScreen
 import com.example.cheese.ui.FriendDetailsScreen
 import com.example.cheese.ui.ResolutionScreen
 import com.example.cheese.ui.SplashScreen
-import com.example.cheese.ui.QuickCreateScreen
 import com.example.cheese.ui.theme.CheeseTheme
 import com.example.cheese.viewmodel.ScheduleViewModel
 
@@ -89,9 +88,6 @@ fun CheeseApp() {
                 onCreateNewEvent = {
                     navController.navigate("organizer")
                 },
-                onQuickCreate = {
-                    navController.navigate("quick_create")
-                },
                 onOpenEvent = { eventId ->
                     val state = scheduleViewModel.events.value.find { it.request.id == eventId }
                     if (state != null) {
@@ -151,25 +147,6 @@ fun CheeseApp() {
                         } else {
                             navController.navigate("participant")
                         }
-                    }
-                }
-            )
-        }
-
-        // ── Quick Create Flow ─────────────────────────────────────────────────
-        composable("quick_create") {
-            QuickCreateScreen(
-                viewModel = scheduleViewModel,
-                onProceed = {
-                    scheduleViewModel.finalizeEventRequest()
-                    navController.navigate("participant")
-                },
-                onAdvancedSetup = {
-                    navController.navigate("organizer")
-                },
-                onBack = {
-                    navController.navigate("dashboard") {
-                        popUpTo("dashboard") { inclusive = true }
                     }
                 }
             )

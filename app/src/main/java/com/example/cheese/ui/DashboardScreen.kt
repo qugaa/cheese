@@ -3,6 +3,8 @@ package com.example.cheese.ui
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -67,7 +69,6 @@ val eventComparator = java.util.Comparator<EventState> { a, b ->
 fun DashboardScreen(
     viewModel: ScheduleViewModel,
     onCreateNewEvent: () -> Unit,
-    onQuickCreate: () -> Unit,
     onOpenEvent: (String) -> Unit,
     onFriendClick: (String) -> Unit,
     onLogout: () -> Unit
@@ -152,33 +153,66 @@ fun DashboardScreen(
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
                     item {
-                        Text(
-                            text = "Quick Create",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
-                        )
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(templates, key = { it.id }) { template ->
-                                TemplateCard(template) {
-                                    viewModel.createFromTemplate(template)
-                                    onQuickCreate()
+                        if (templates.isNotEmpty()) {
+                            var templateToDelete by remember { mutableStateOf<EventTemplate?>(null) }
+                            
+                            if (templateToDelete != null) {
+                                AlertDialog(
+                                    onDismissRequest = { templateToDelete = null },
+                                    title = { Text("Delete Template") },
+                                    text = { Text("Are you sure you want to delete '${templateToDelete?.name}'?") },
+                                    confirmButton = {
+                                        TextButton(
+                                            onClick = {
+                                                templateToDelete?.let { viewModel.deleteTemplate(it) }
+                                                templateToDelete = null
+                                            }
+                                        ) {
+                                            Text("Delete")
+                                        }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { templateToDelete = null }) {
+                                            Text("Cancel")
+                                        }
+                                    }
+                                )
+                            }
+                            
+                            Text(
+                                text = "Saved Templates",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
+                            )
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(templates, key = { it.id }) { template ->
+                                    TemplateCard(
+                                        template = template,
+                                        onClick = {
+                                            viewModel.createFromTemplate(template)
+                                            onCreateNewEvent()
+                                        },
+                                        onLongClick = {
+                                            templateToDelete = template
+                                        }
+                                    )
                                 }
                             }
+                            Spacer(Modifier.height(16.dp))
+                            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                            Spacer(Modifier.height(16.dp))
                         }
-                        Spacer(Modifier.height(16.dp))
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-                        Spacer(Modifier.height(16.dp))
                         Text(
                             text = "Upcoming Events",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                            modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 8.dp)
                         )
                     }
 
@@ -381,16 +415,19 @@ fun DashboardScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-private fun TemplateCard(template: EventTemplate, onClick: () -> Unit) {
+private fun TemplateCard(template: EventTemplate, onClick: () -> Unit, onLongClick: () -> Unit) {
     Card(
         modifier = Modifier
             .width(140.dp)
-            .height(140.dp),
+            .height(140.dp)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-        onClick = onClick
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
     ) {
         Column(
             modifier = Modifier.padding(16.dp).fillMaxSize(),
@@ -413,7 +450,7 @@ private fun TemplateCard(template: EventTemplate, onClick: () -> Unit) {
                     maxLines = 1
                 )
                 Text(
-                    text = template.dateOffset.label,
+                    text = "${template.invitees.size} invited",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
                     maxLines = 2

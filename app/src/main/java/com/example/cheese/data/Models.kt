@@ -17,7 +17,7 @@ data class EventTemplate(
     val id: String = UUID.randomUUID().toString(),
     val emoji: String,
     val name: String,
-    val dateOffset: DateOffset
+    val invitees: List<String> = emptyList()
 )
 
 data class Friend(

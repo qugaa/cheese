@@ -101,10 +101,17 @@ fun DashboardScreen(
         }
     }
 
+    var successOverlayMessage by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(dashboardMessage) {
         dashboardMessage?.let { msg ->
-            snackbarHostState.showSnackbar(msg)
-            viewModel.clearDashboardMessage()
+            if (msg == "Event Confirmed!" || msg == "Event Created!" || msg == "Availabilities Sent!") {
+                successOverlayMessage = msg
+                viewModel.clearDashboardMessage()
+            } else {
+                snackbarHostState.showSnackbar(msg)
+                viewModel.clearDashboardMessage()
+            }
         }
     }
 
@@ -549,6 +556,76 @@ fun DashboardScreen(
                     }
                 }
             }
+        }
+    }
+
+    val overlayMessage = successOverlayMessage
+    if (overlayMessage != null) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { successOverlayMessage = null }
+        ) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier
+                    .width(280.dp)
+                    .padding(16.dp),
+                tonalElevation = 6.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .background(Color(0xFFE8F5E9), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Success",
+                            tint = Color(0xFF2E7D32),
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Text(
+                        text = overlayMessage,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1B5E20),
+                        textAlign = TextAlign.Center
+                    )
+                    
+                    val subtext = when (overlayMessage) {
+                        "Event Confirmed!" -> "The final date and time have been finalized."
+                        "Event Created!" -> "waiting for response"
+                        "Availabilities Sent!" -> "Thank you for submitting your availability."
+                        else -> ""
+                    }
+                    
+                    if (subtext.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = subtext,
+                            style = if (overlayMessage == "Event Created!") {
+                                MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
+                            } else {
+                                MaterialTheme.typography.bodyMedium
+                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+        
+        LaunchedEffect(overlayMessage) {
+            delay(2500)
+            successOverlayMessage = null
         }
     }
 }

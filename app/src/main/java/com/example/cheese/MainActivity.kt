@@ -158,6 +158,7 @@ fun CheeseApp() {
                 viewModel = scheduleViewModel,
                 onRequestSent = { isDirectSend ->
                     if (isDirectSend) {
+                        scheduleViewModel.setDashboardMessage("Event Created!")
                         navController.navigate("dashboard") {
                             popUpTo("dashboard") { inclusive = true }
                         }
@@ -209,8 +210,9 @@ fun CheeseApp() {
                     }
                 },
                 onConfirm = {
-                    navController.navigate("event_details") {
-                        popUpTo("dashboard")
+                    scheduleViewModel.setDashboardMessage("Event Confirmed!")
+                    navController.navigate("dashboard") {
+                        popUpTo("dashboard") { inclusive = true }
                     }
                 },
                 onBack = {

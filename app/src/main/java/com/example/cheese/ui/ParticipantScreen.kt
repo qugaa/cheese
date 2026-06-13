@@ -307,7 +307,7 @@ fun ParticipantScreen(
                                         snackbarHostState.showSnackbar(msg)
                                     }
                                     viewModel.submitDateOnlyAvailability()
-                                    val dashboardMsg = if (isOrganizer && isNewEvent) "Event Created" else null
+                                    val dashboardMsg = if (isOrganizer && !hasSubmittedBefore) "Event Created!" else if (!isOrganizer) "Availabilities Sent!" else "Availability Updated!"
                                     onSubmitted(dashboardMsg)
                                 },
                                 modifier = Modifier.weight(1f),
@@ -333,7 +333,7 @@ fun ParticipantScreen(
                                     if (noDates) {
                                         scope.launch { snackbarHostState.showSnackbar("Marked as not available") }
                                         viewModel.submitAvailability()
-                                        val dashboardMsg = if (isOrganizer && isNewEvent) "Event Created" else null
+                                        val dashboardMsg = if (isOrganizer && !hasSubmittedBefore) "Event Created!" else if (!isOrganizer) "Availabilities Sent!" else "Availability Updated!"
                                         onSubmitted(dashboardMsg)
                                     } else {
                                         viewModel.pruneDraftToSelectedDates()
@@ -355,7 +355,7 @@ fun ParticipantScreen(
                                         snackbarHostState.showSnackbar(msg)
                                     }
                                     viewModel.submitAvailability()
-                                    val dashboardMsg = if (isOrganizer && isNewEvent) "Event Created" else null
+                                    val dashboardMsg = if (isOrganizer && !hasSubmittedBefore) "Event Created!" else if (!isOrganizer) "Availabilities Sent!" else "Availability Updated!"
                                     onSubmitted(dashboardMsg)
                                 },
                                 modifier = Modifier.weight(1f),

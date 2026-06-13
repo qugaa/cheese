@@ -79,9 +79,9 @@ class ScheduleViewModel : ViewModel() {
         userListener = db.collection("users").document(username).addSnapshotListener { snapshot, e ->
             if (e != null || snapshot == null) return@addSnapshotListener
             val friendsList = snapshot.get("friends") as? List<String> ?: emptyList()
-            // Map string array to local Friend UI objects (assigning arbitrary colors)
+            // Map string array to local Friend UI objects (assigning unique colors)
             _friends.value = friendsList.mapIndexed { idx, name ->
-                Friend(name = name, colorIndex = CuratedParticipantColors.indices.random())
+                Friend(name = name, colorIndex = idx % CuratedParticipantColors.size)
             }
 
             val templatesMapList = snapshot.get("templates") as? List<Map<String, Any>> ?: emptyList()
@@ -192,7 +192,7 @@ class ScheduleViewModel : ViewModel() {
     }
 
     fun createNewEvent() {
-        val newEvent = EventRequest()
+        val newEvent = EventRequest(createdAt = System.currentTimeMillis())
         _eventRequest.value = newEvent
         _draftAvailability.value = emptySet()
         _currentEventId.value = newEvent.id
@@ -215,7 +215,8 @@ class ScheduleViewModel : ViewModel() {
             startDateMillis = 0L,
             endDateMillis = 0L,
             startHour = 0,
-            endHour = 24
+            endHour = 24,
+            createdAt = System.currentTimeMillis()
         )
         _eventRequest.value = newEvent
         _draftAvailability.value = emptySet()
@@ -263,6 +264,10 @@ class ScheduleViewModel : ViewModel() {
 
     fun selectEvent(eventId: String) {
         _currentEventId.value = eventId
+        val state = _events.value.find { it.request.id == eventId }
+        if (state != null) {
+            _eventRequest.value = state.request
+        }
     }
 
     fun deleteEvent(eventId: String) {
@@ -320,6 +325,44 @@ class ScheduleViewModel : ViewModel() {
         }
     }
 
+    fun toggleSelectedDateInRequest(dayMillis: Long) {
+        _eventRequest.update { current ->
+            val list = current.selectedDatesList
+            val newList = if (dayMillis in list) list - dayMillis else list + dayMillis
+            val minDate = newList.minOrNull() ?: 0L
+            val maxDate = newList.maxOrNull() ?: 0L
+            current.copy(
+                selectedDatesList = newList,
+                startDateMillis = minDate,
+                endDateMillis = maxDate
+            )
+        }
+    }
+
+    fun addSelectedDatesRangeInRequest(startMillis: Long, endMillis: Long, isSelecting: Boolean) {
+        _eventRequest.update { current ->
+            val rangeDays = mutableListOf<Long>()
+            var curr = minOf(startMillis, endMillis)
+            val end = maxOf(startMillis, endMillis)
+            while (curr <= end) {
+                rangeDays.add(curr)
+                curr += 86400000L
+            }
+            val newList = if (isSelecting) {
+                (current.selectedDatesList.toSet() + rangeDays).toList()
+            } else {
+                (current.selectedDatesList.toSet() - rangeDays.toSet()).toList()
+            }
+            val minDate = newList.minOrNull() ?: 0L
+            val maxDate = newList.maxOrNull() ?: 0L
+            current.copy(
+                selectedDatesList = newList,
+                startDateMillis = minDate,
+                endDateMillis = maxDate
+            )
+        }
+    }
+
     fun updateTimeRange(startHour: Int, endHour: Int) {
         _eventRequest.update {
             it.copy(startHour = startHour, endHour = endHour)
@@ -339,33 +382,37 @@ class ScheduleViewModel : ViewModel() {
     }
 
     fun addInvitee(name: String, onResult: ((Boolean, String) -> Unit)? = null) {
-        if (name.isBlank()) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) {
             onResult?.invoke(false, "Name cannot be empty")
-            return
-        }
-        val currentReq = _eventRequest.value
-        if (currentReq.invitees.any { it.name == name }) {
-            onResult?.invoke(false, "Already added")
             return
         }
 
         // Verify user exists in Firestore
-        db.collection("users").document(name).get().addOnSuccessListener { snapshot: com.google.firebase.firestore.DocumentSnapshot ->
+        db.collection("users").document(trimmed).get().addOnSuccessListener { snapshot: com.google.firebase.firestore.DocumentSnapshot ->
             if (snapshot.exists()) {
-                val newColor = nextUniqueColorIndex(currentReq.invitees.map { it.colorIndex })
-                val isHost = currentReq.invitees.isEmpty()
-                val newInvitee = Invitee(name = name, colorIndex = newColor, isHost = isHost)
-                val newInvitees = currentReq.invitees + newInvitee
-                
+                var wasAdded = false
                 _eventRequest.update { current ->
+                    if (current.invitees.any { it.name.lowercase() == trimmed.lowercase() }) {
+                        wasAdded = true
+                        return@update current
+                    }
+                    val newColor = nextUniqueColorIndex(current.invitees.map { it.colorIndex })
+                    val isHost = current.invitees.isEmpty()
+                    val newInvitee = Invitee(name = trimmed, colorIndex = newColor, isHost = isHost)
+                    val newInvitees = current.invitees + newInvitee
                     current.copy(
                         invitees = newInvitees,
                         inviteeNames = newInvitees.map { it.name }
                     )
                 }
-                onResult?.invoke(true, "Added $name")
+                if (wasAdded) {
+                    onResult?.invoke(false, "Already added")
+                } else {
+                    onResult?.invoke(true, "Added $trimmed")
+                }
             } else {
-                onResult?.invoke(false, "User '$name' not found.")
+                onResult?.invoke(false, "User '$trimmed' not found.")
             }
         }.addOnFailureListener {
             onResult?.invoke(false, "Network error checking user.")
@@ -380,8 +427,13 @@ class ScheduleViewModel : ViewModel() {
 
             // First invitee is automatically the host
             val isHost = current.invitees.isEmpty()
-            val colorIndex = colorIndex ?: nextUniqueColorIndex(current.invitees.map { it.colorIndex })
-            val newInvitee = Invitee(name = trimmed, colorIndex = colorIndex, isHost = isHost)
+            val assignedColors = current.invitees.map { it.colorIndex }
+            val resolvedColor = if (colorIndex != null && colorIndex !in assignedColors) {
+                colorIndex
+            } else {
+                nextUniqueColorIndex(assignedColors)
+            }
+            val newInvitee = Invitee(name = trimmed, colorIndex = resolvedColor, isHost = isHost)
 
             val newInvitees = current.invitees + newInvitee
             current.copy(
@@ -394,7 +446,7 @@ class ScheduleViewModel : ViewModel() {
     private fun nextUniqueColorIndex(assigned: List<Int>): Int {
         val used = assigned.toSet()
         val available = CuratedParticipantColors.indices.filter { it !in used }
-        return if (available.isNotEmpty()) available.random() else CuratedParticipantColors.indices.random()
+        return if (available.isNotEmpty()) available.first() else 0
     }
 
     fun removeInvitee(name: String) {
@@ -419,8 +471,64 @@ class ScheduleViewModel : ViewModel() {
 
     fun finalizeEventRequest() {
         val request = _eventRequest.value
-        val newState = EventState(request = request)
+        
+        // Calculate initial organizerRestrictions for days that were not selected in the window:
+        val initialRestrictions = mutableListOf<Long>()
+        if (request.startDateMillis > 0L && request.endDateMillis > 0L && request.selectedDatesList.isNotEmpty()) {
+            val selectedSet = request.selectedDatesList.toSet()
+            var current = request.startDateMillis
+            while (current <= request.endDateMillis) {
+                if (current !in selectedSet) {
+                    if (request.dateOnlyMode) {
+                        initialRestrictions.add(current)
+                    } else {
+                        // Add all hour slots for this day as restricted
+                        for (h in request.startHour until request.endHour) {
+                            initialRestrictions.add(current + h * 3600000L)
+                        }
+                    }
+                }
+                current += 86400000L
+            }
+        }
+        
+        val newState = EventState(
+            request = request,
+            organizerRestrictions = initialRestrictions
+        )
         db.collection("events").document(request.id).set(newState)
+    }
+
+    fun finalizeDateOnlyEventRequest() {
+        val request = _eventRequest.value.copy(dateOnlyMode = true)
+        val hostName = _currentUser.value ?: "Organizer"
+        
+        // Host response contains their selectedDatesList
+        val hostResponse = ParticipantResponse(hostName, request.selectedDatesList)
+        val responses = mapOf(hostName to hostResponse)
+        
+        // Restrictions are unselected dates in the window:
+        val initialRestrictions = mutableListOf<Long>()
+        if (request.startDateMillis > 0L && request.endDateMillis > 0L && request.selectedDatesList.isNotEmpty()) {
+            val selectedSet = request.selectedDatesList.toSet()
+            var current = request.startDateMillis
+            while (current <= request.endDateMillis) {
+                if (current !in selectedSet) {
+                    initialRestrictions.add(current)
+                }
+                current += 86400000L
+            }
+        }
+        
+        val newState = EventState(
+            request = request,
+            responses = responses,
+            organizerRestrictions = initialRestrictions
+        )
+        db.collection("events").document(request.id).set(newState)
+
+        _selectedDates.value = emptySet()
+        _draftAvailability.value = emptySet()
     }
 
     // ── View 2 state: Participant Availability Input ──────────────────────────
@@ -432,8 +540,66 @@ class ScheduleViewModel : ViewModel() {
     val selectedDates: StateFlow<Set<Long>> = _selectedDates.asStateFlow()
 
     fun toggleSelectedDate(dayMillis: Long) {
+        val invitee = currentInvitee()
+        val eventState = getCurrentEventState()
+        if (invitee != null && !invitee.isHost && eventState != null) {
+            val organizerRestrictions = eventState.organizerRestrictions
+            if (organizerRestrictions.isNotEmpty()) {
+                val dateOnly = eventState.request.dateOnlyMode
+                if (dateOnly) {
+                    if (dayMillis in organizerRestrictions) return
+                } else {
+                    val request = eventState.request
+                    val restrictedSet = organizerRestrictions.toSet()
+                    val allSlotsOnDayRestricted = (request.startHour until request.endHour).all { h ->
+                        val slotTimestamp = dayMillis + h * 3600000L
+                        slotTimestamp in restrictedSet
+                    }
+                    if (allSlotsOnDayRestricted) return
+                }
+            }
+        }
         _selectedDates.update { current ->
             if (dayMillis in current) current - dayMillis else current + dayMillis
+        }
+    }
+
+    fun addSelectedDatesRange(startMillis: Long, endMillis: Long, isSelecting: Boolean) {
+        val invitee = currentInvitee()
+        val eventState = getCurrentEventState()
+        val rangeDays = mutableListOf<Long>()
+        var curr = minOf(startMillis, endMillis)
+        val end = maxOf(startMillis, endMillis)
+        while (curr <= end) {
+            var restricted = false
+            if (invitee != null && !invitee.isHost && eventState != null) {
+                val organizerRestrictions = eventState.organizerRestrictions
+                if (organizerRestrictions.isNotEmpty()) {
+                    val dateOnly = eventState.request.dateOnlyMode
+                    if (dateOnly) {
+                        if (curr in organizerRestrictions) restricted = true
+                    } else {
+                        val request = eventState.request
+                        val restrictedSet = organizerRestrictions.toSet()
+                        val allSlotsOnDayRestricted = (request.startHour until request.endHour).all { h ->
+                            val slotTimestamp = curr + h * 3600000L
+                            slotTimestamp in restrictedSet
+                        }
+                        if (allSlotsOnDayRestricted) restricted = true
+                    }
+                }
+            }
+            if (!restricted) {
+                rangeDays.add(curr)
+            }
+            curr += 86400000L
+        }
+        _selectedDates.update { current ->
+            if (isSelecting) {
+                current + rangeDays
+            } else {
+                current - rangeDays.toSet()
+            }
         }
     }
 
@@ -464,45 +630,62 @@ class ScheduleViewModel : ViewModel() {
             .toSet()
     }
 
+    fun isCurrentUserHost(): Boolean {
+        val currentUser = _currentUser.value ?: return false
+        val state = _events.value.find { it.request.id == _currentEventId.value }
+        val request = state?.request ?: _eventRequest.value
+        return request.invitees.firstOrNull()?.name == currentUser
+    }
+
     fun currentInvitee(): Invitee? {
-        val request = _events.value.find { it.request.id == _currentEventId.value }?.request ?: _eventRequest.value
+        val request = if (isCurrentUserHost()) _eventRequest.value else (_events.value.find { it.request.id == _currentEventId.value }?.request ?: _eventRequest.value)
         val name = _currentUser.value ?: return null
         return request.invitees.find { it.name == name }
     }
 
     fun totalParticipants(): Int {
-        val request = _events.value.find { it.request.id == _currentEventId.value }?.request ?: _eventRequest.value
+        val request = if (isCurrentUserHost()) _eventRequest.value else (_events.value.find { it.request.id == _currentEventId.value }?.request ?: _eventRequest.value)
         return request.invitees.size
     }
 
     fun toggleCell(index: Int) {
-        _draftAvailability.update { current ->
-            if (index in current) current - index else current + index
-        }
-    }
-
-    fun paintCell(index: Int, totalCells: Int) {
-        if (index !in 0 until totalCells) return
-        val eventState = getCurrentEventState() ?: return
-        
-        val invitee = currentInvitee() ?: return
-        
-        // Enforce organizer restrictions for non-hosts
-        if (!invitee.isHost) {
+        val eventState = getCurrentEventState()
+        val invitee = currentInvitee()
+        if (eventState != null && invitee != null && !invitee.isHost) {
             val request = eventState.request
             val config = GridConfig(request.startDateMillis, request.endDateMillis, request.startHour, request.endHour)
             val timestamp = config.cellToTimestamp(index)
             if (timestamp in eventState.organizerRestrictions) return
         }
+        _draftAvailability.update { current ->
+            if (index in current) current - index else current + index
+        }
+    }
+
+    fun paintCell(index: Int, isSelecting: Boolean) {
+        val eventState = getCurrentEventState()
+        val invitee = currentInvitee() ?: return
         
-        _draftAvailability.update { it + index }
+        val request = if (invitee.isHost) _eventRequest.value else (eventState?.request ?: _eventRequest.value)
+        val config = GridConfig(request.startDateMillis, request.endDateMillis, request.startHour, request.endHour)
+        if (index !in 0 until config.totalCells) return
+
+        // Enforce organizer restrictions for non-hosts
+        if (!invitee.isHost && eventState != null) {
+            val timestamp = config.cellToTimestamp(index)
+            if (timestamp in eventState.organizerRestrictions) return
+        }
+        
+        _draftAvailability.update { current ->
+            if (isSelecting) current + index else current - index
+        }
     }
 
     fun loadDraftForCurrentParticipant() {
         val invitee = currentInvitee() ?: return
         val eventId = _currentEventId.value ?: return
         val state = _events.value.find { it.request.id == eventId }
-        val request = state?.request ?: _eventRequest.value
+        val request = if (invitee.isHost) _eventRequest.value else (state?.request ?: _eventRequest.value)
         val config = GridConfig(request.startDateMillis, request.endDateMillis, request.startHour, request.endHour)
         
         val existingResponse = state?.responses?.get(invitee.name)
@@ -514,22 +697,29 @@ class ScheduleViewModel : ViewModel() {
     fun saveCurrentDraft() {
         val invitee = currentInvitee() ?: return
         val eventId = _currentEventId.value ?: return
-        val state = _events.value.find { it.request.id == eventId } ?: return
-        val request = state.request
+        val state = _events.value.find { it.request.id == eventId }
+        val request = if (invitee.isHost) _eventRequest.value else (state?.request ?: _eventRequest.value)
+        val responses = state?.responses ?: emptyMap()
+        
         val config = GridConfig(request.startDateMillis, request.endDateMillis, request.startHour, request.endHour)
         
         val timestamps = _draftAvailability.value.map { config.cellToTimestamp(it) }.toList()
         
-        val updatedResponses = state.responses + (invitee.name to ParticipantResponse(invitee.name, timestamps))
+        val updatedResponses = responses + (invitee.name to ParticipantResponse(invitee.name, timestamps))
         
-        var updatedRestrictions = state.organizerRestrictions
+        var updatedRestrictions = state?.organizerRestrictions ?: emptyList()
         if (invitee.isHost) {
             val allCells = (0 until config.totalCells).toSet()
             val restrictedCells = allCells - _draftAvailability.value
             updatedRestrictions = restrictedCells.map { config.cellToTimestamp(it) }.toList()
         }
         
-        val newState = state.copy(responses = updatedResponses, organizerRestrictions = updatedRestrictions)
+        val newState = EventState(
+            request = request,
+            responses = updatedResponses,
+            organizerRestrictions = updatedRestrictions,
+            finalCellIndex = state?.finalCellIndex
+        )
         db.collection("events").document(eventId).set(newState)
     }
 
@@ -550,11 +740,34 @@ class ScheduleViewModel : ViewModel() {
     fun submitDateOnlyAvailability() {
         val invitee = currentInvitee() ?: return
         val eventId = _currentEventId.value ?: return
-        val state = _events.value.find { it.request.id == eventId } ?: return
+        val state = _events.value.find { it.request.id == eventId }
+        
+        val request = if (invitee.isHost) _eventRequest.value else (state?.request ?: _eventRequest.value)
+        val responses = state?.responses ?: emptyMap()
 
         val timestamps = _selectedDates.value.toList()
-        val updatedResponses = state.responses + (invitee.name to ParticipantResponse(invitee.name, timestamps))
-        db.collection("events").document(eventId).set(state.copy(responses = updatedResponses))
+        val updatedResponses = responses + (invitee.name to ParticipantResponse(invitee.name, timestamps))
+        
+        var updatedRestrictions = state?.organizerRestrictions ?: emptyList()
+        if (invitee.isHost) {
+            val allDates = mutableListOf<Long>()
+            if (request.startDateMillis > 0L && request.endDateMillis > 0L) {
+                var current = request.startDateMillis
+                while (current <= request.endDateMillis) {
+                    allDates.add(current)
+                    current += 86400000L
+                }
+            }
+            updatedRestrictions = allDates - _selectedDates.value
+        }
+        
+        val newState = EventState(
+            request = request,
+            responses = updatedResponses,
+            finalCellIndex = state?.finalCellIndex,
+            organizerRestrictions = updatedRestrictions
+        )
+        db.collection("events").document(eventId).set(newState)
 
         _selectedDates.value = emptySet()
         _draftAvailability.value = emptySet()
@@ -612,10 +825,10 @@ class ScheduleViewModel : ViewModel() {
         return heatmap.maxByOrNull { it.value }?.key
     }
 
-    fun setFinalEvent(cellIndex: Int) {
+    fun setFinalEvent(cellIndex: Int, endCellIndex: Int? = null) {
         val eventId = _currentEventId.value ?: return
         val state = _events.value.find { it.request.id == eventId } ?: return
-        val newState = state.copy(finalCellIndex = cellIndex)
+        val newState = state.copy(finalCellIndex = cellIndex, finalCellEndIndex = endCellIndex)
         db.collection("events").document(eventId).set(newState)
     }
 }

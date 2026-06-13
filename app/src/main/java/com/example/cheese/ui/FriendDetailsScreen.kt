@@ -24,6 +24,7 @@ fun FriendDetailsScreen(
     onOpenEvent: (String) -> Unit
 ) {
     val events by viewModel.events.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
 
     // Filter events involving this friend
     val sharedEvents = events.filter { event ->
@@ -80,6 +81,7 @@ fun FriendDetailsScreen(
                     Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                         EventCard(
                             eventState = eventState,
+                            currentUser = currentUser,
                             onDelete = { viewModel.deleteEvent(eventState.request.id) },
                             onClick = {
                                 viewModel.selectEvent(eventState.request.id)
@@ -117,6 +119,7 @@ fun FriendDetailsScreen(
                     Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                         EventCard(
                             eventState = eventState,
+                            currentUser = currentUser,
                             onDelete = { viewModel.deleteEvent(eventState.request.id) },
                             onClick = {
                                 viewModel.selectEvent(eventState.request.id)

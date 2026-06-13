@@ -62,7 +62,9 @@ data class EventRequest(
     val endHour: Int = 24,
     val invitees: List<Invitee> = emptyList(),
     val inviteeNames: List<String> = emptyList(),
-    val dateOnlyMode: Boolean = false
+    val dateOnlyMode: Boolean = false,
+    val selectedDatesList: List<Long> = emptyList(),
+    val createdAt: Long = 0L
 )
 
 /**
@@ -85,6 +87,7 @@ data class EventState(
     val request: EventRequest = EventRequest(),
     val responses: Map<String, ParticipantResponse> = emptyMap(),
     val finalCellIndex: Int? = null,
+    val finalCellEndIndex: Int? = null,
     val organizerRestrictions: List<Long> = emptyList()
 )
 

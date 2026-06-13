@@ -156,9 +156,14 @@ fun CheeseApp() {
         composable("organizer") {
             OrganizerScreen(
                 viewModel = scheduleViewModel,
-                onRequestSent = {
-                    scheduleViewModel.finalizeEventRequest()
-                    navController.navigate("participant")
+                onRequestSent = { isDirectSend ->
+                    if (isDirectSend) {
+                        navController.navigate("dashboard") {
+                            popUpTo("dashboard") { inclusive = true }
+                        }
+                    } else {
+                        navController.navigate("participant")
+                    }
                 },
                 onBack = { navController.navigateUp() }
             )
@@ -180,17 +185,13 @@ fun CheeseApp() {
                     val currentId = scheduleViewModel.currentEventId.value
                     if (currentId != null) {
                         scheduleViewModel.saveCurrentDraft()
-                        // Editing is not implemented in ViewModel yet, removed `scheduleViewModel.editEvent(currentId)` 
-                        // Let's just return to dashboard for now
                         navController.navigate("dashboard") {
                             popUpTo("dashboard") { inclusive = true }
                         }
                     }
                 },
-                onBackToDashboard = {
-                    navController.navigate("dashboard") {
-                        popUpTo("dashboard") { inclusive = true }
-                    }
+                onBack = {
+                    navController.navigateUp()
                 }
             )
         }

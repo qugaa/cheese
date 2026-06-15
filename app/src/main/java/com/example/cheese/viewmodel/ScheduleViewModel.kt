@@ -30,6 +30,9 @@ class ScheduleViewModel : ViewModel() {
     private val _isLoggingIn = MutableStateFlow(false)
     val isLoggingIn: StateFlow<Boolean> = _isLoggingIn.asStateFlow()
 
+    private val _loginError = MutableStateFlow<String?>(null)
+    val loginError: StateFlow<String?> = _loginError.asStateFlow()
+
     private val _friends = MutableStateFlow<List<Friend>>(emptyList())
     val friends: StateFlow<List<Friend>> = _friends.asStateFlow()
 
@@ -46,6 +49,7 @@ class ScheduleViewModel : ViewModel() {
     fun login(username: String, onSuccess: () -> Unit) {
         if (username.isBlank()) return
         _isLoggingIn.value = true
+        _loginError.value = null
 
         val docRef = db.collection("users").document(username)
         docRef.get().addOnSuccessListener { document ->
@@ -66,9 +70,13 @@ class ScheduleViewModel : ViewModel() {
                     setupRealtimeListeners(username)
                     onSuccess()
                     _isLoggingIn.value = false
+                }.addOnFailureListener { e ->
+                    _loginError.value = e.message ?: "Failed to create user"
+                    _isLoggingIn.value = false
                 }
             }
-        }.addOnFailureListener {
+        }.addOnFailureListener { e ->
+            _loginError.value = e.message ?: "Failed to fetch user. Check your connection or Firestore rules."
             _isLoggingIn.value = false
         }
     }
@@ -391,6 +399,19 @@ class ScheduleViewModel : ViewModel() {
             val newState = eventState.copy(request = updatedRequest, responses = updatedResponses)
             
             db.collection("events").document(eventId).set(newState)
+            
+            // Notify host and other participants that user has left
+            updatedInvitees.forEach { invitee ->
+                sendNotification(
+                    recipient = invitee.name,
+                    sender = currentUser,
+                    type = "LEFT_EVENT",
+                    eventId = eventId,
+                    eventName = eventState.request.eventName,
+                    eventEmoji = eventState.request.eventEmoji,
+                    message = "$currentUser has left ${eventState.request.eventName}"
+                )
+            }
         }
 
         // Eagerly remove from local state to immediately dismiss the UI component

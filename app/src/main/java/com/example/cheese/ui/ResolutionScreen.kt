@@ -863,12 +863,6 @@ private fun FinalSummarySheet(
         HorizontalDivider()
 
         SummaryRow(label = "Event", value = "${eventRequest.eventEmoji} ${eventRequest.eventName.ifBlank { "Untitled" }}")
-        SummaryRow(
-            label = "Window",
-            value = if (eventRequest.startDateMillis > 0L && eventRequest.endDateMillis > 0L)
-                "${dateFormatter.format(Date(eventRequest.startDateMillis))} → ${dateFormatter.format(Date(eventRequest.endDateMillis))}"
-            else "Not specified"
-        )
         SummaryRow(label = "Day", value = dayLabel)
         SummaryRow(label = "Time", value = if (dateOnly) "All day" else hourLabel)
         SummaryRow(
@@ -886,37 +880,67 @@ private fun FinalSummarySheet(
 
         eventRequest.invitees.forEach { invitee ->
             val response = responses[invitee.name]
-            val isAvailable = selectedTimestamps.isNotEmpty() && response?.availability?.let { avail ->
-                selectedTimestamps.all { ts -> avail.contains(ts) }
-            } == true
+            val attendedCount = if (selectedTimestamps.isNotEmpty() && response != null) {
+                selectedTimestamps.count { ts -> response.availability.contains(ts) }
+            } else 0
+            val attendanceFraction = if (selectedTimestamps.isNotEmpty()) {
+                attendedCount.toFloat() / selectedTimestamps.size
+            } else 0f
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .background(
-                            color = if (isAvailable) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
-                            shape = CircleShape
-                        )
-                )
-                Text(
-                    text = invitee.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f, fill = false)
-                )
-                if (invitee.isHost) {
-                    Spacer(modifier = Modifier.width(4.dp))
-                    SuggestionChip(
-                        onClick = { },
-                        label = { Text("Host", fontSize = 8.sp) },
-                        modifier = Modifier.height(20.dp)
+                ) {
+                    Text(
+                        text = invitee.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (invitee.isHost) {
+                        SuggestionChip(
+                            onClick = { },
+                            label = { Text("Host", fontSize = 8.sp) },
+                            modifier = Modifier.height(20.dp)
+                        )
+                    }
+                }
+                if (attendanceFraction > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .width(120.dp)
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(attendanceFraction)
+                                .height(6.dp)
+                                .background(
+                                    color = when {
+                                        attendanceFraction < 0.25f -> MaterialTheme.colorScheme.error
+                                        attendanceFraction <= 0.95f -> Color(0xFFFFC107)
+                                        else -> Color(0xFF4CAF50)
+                                    }
+                                )
+                        )
+                    }
+                } else {
+                    Text(
+                        text = "Not available",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.width(120.dp),
+                        textAlign = TextAlign.End
                     )
                 }
             }

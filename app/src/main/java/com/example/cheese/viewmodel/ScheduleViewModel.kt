@@ -301,6 +301,55 @@ class ScheduleViewModel : ViewModel() {
         }
     }
 
+    fun addParticipantToExistingEvent(eventId: String, participantName: String, onResult: (Boolean, String) -> Unit) {
+        val trimmed = participantName.trim()
+        if (trimmed.isBlank()) {
+            onResult(false, "Name cannot be empty")
+            return
+        }
+
+        db.collection("users").document(trimmed).get().addOnSuccessListener { snapshot ->
+            if (snapshot.exists()) {
+                val eventRef = db.collection("events").document(eventId)
+                eventRef.get().addOnSuccessListener { eventDoc ->
+                    val eventState = eventDoc.toObject(EventState::class.java)
+                    if (eventState != null) {
+                        val currentRequest = eventState.request
+                        if (currentRequest.invitees.any { it.name.lowercase() == trimmed.lowercase() }) {
+                            onResult(false, "Already a participant")
+                            return@addOnSuccessListener
+                        }
+                        
+                        val newColor = nextUniqueColorIndex(currentRequest.invitees.map { it.colorIndex })
+                        val newInvitee = Invitee(name = trimmed, colorIndex = newColor, isHost = false)
+                        val updatedInvitees = currentRequest.invitees + newInvitee
+                        val updatedInviteeNames = currentRequest.inviteeNames + trimmed
+                        
+                        val updatedRequest = currentRequest.copy(
+                            invitees = updatedInvitees,
+                            inviteeNames = updatedInviteeNames
+                        )
+                        val updatedState = eventState.copy(request = updatedRequest)
+                        
+                        eventRef.set(updatedState).addOnSuccessListener {
+                            onResult(true, "Added $trimmed")
+                        }.addOnFailureListener {
+                            onResult(false, "Failed to update event in database")
+                        }
+                    } else {
+                        onResult(false, "Event not found")
+                    }
+                }.addOnFailureListener {
+                    onResult(false, "Failed to retrieve event details")
+                }
+            } else {
+                onResult(false, "User '$trimmed' not found.")
+            }
+        }.addOnFailureListener {
+            onResult(false, "Network error checking user.")
+        }
+    }
+
     private fun getCurrentEventState(): EventState? {
         val id = _currentEventId.value ?: return null
         return _events.value.find { it.request.id == id }
@@ -337,6 +386,7 @@ class ScheduleViewModel : ViewModel() {
                 endDateMillis = maxDate
             )
         }
+        pruneDraftToSelectedRequestDates()
     }
 
     fun addSelectedDatesRangeInRequest(startMillis: Long, endMillis: Long, isSelecting: Boolean) {
@@ -360,6 +410,19 @@ class ScheduleViewModel : ViewModel() {
                 startDateMillis = minDate,
                 endDateMillis = maxDate
             )
+        }
+        pruneDraftToSelectedRequestDates()
+    }
+
+    fun pruneDraftToSelectedRequestDates() {
+        val request = _eventRequest.value
+        if (request.startDateMillis <= 0L) return
+        val config = GridConfig(request.startDateMillis, request.endDateMillis, request.startHour, request.endHour)
+        val allowedCols = request.selectedDatesList
+            .map { ((it - request.startDateMillis) / 86400000L).toInt() }
+            .toSet()
+        _draftAvailability.update { current ->
+            current.filter { idx -> (idx % config.cols) in allowedCols }.toSet()
         }
     }
 
@@ -725,6 +788,33 @@ class ScheduleViewModel : ViewModel() {
 
     fun submitAvailability() {
         saveCurrentDraft()
+        _draftAvailability.value = emptySet()
+    }
+
+    fun clearDraftAvailability() {
+        _draftAvailability.value = emptySet()
+    }
+
+    fun finalizeEventWithSpecificTimeSlots() {
+        val invitee = currentInvitee() ?: return
+        val eventId = _currentEventId.value ?: return
+        val request = _eventRequest.value.copy(dateOnlyMode = false)
+        
+        val config = GridConfig(request.startDateMillis, request.endDateMillis, request.startHour, request.endHour)
+        val timestamps = _draftAvailability.value.map { config.cellToTimestamp(it) }.toList()
+        val updatedResponses = mapOf(invitee.name to ParticipantResponse(invitee.name, timestamps))
+        
+        val allCells = (0 until config.totalCells).toSet()
+        val restrictedCells = allCells - _draftAvailability.value
+        val updatedRestrictions = restrictedCells.map { config.cellToTimestamp(it) }.toList()
+        
+        val newState = EventState(
+            request = request,
+            responses = updatedResponses,
+            organizerRestrictions = updatedRestrictions
+        )
+        db.collection("events").document(eventId).set(newState)
+        
         _draftAvailability.value = emptySet()
     }
 

@@ -19,9 +19,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
@@ -66,6 +68,7 @@ import com.example.cheese.data.ParticipantResponse
 import com.example.cheese.data.Invitee
 import com.example.cheese.ui.theme.CuratedParticipantColors
 import com.example.cheese.viewmodel.ScheduleViewModel
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.Switch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -121,12 +124,12 @@ fun ResolutionScreen(
 
     val dateOnly = eventRequest.dateOnlyMode
 
-    val gridConfig = remember(eventRequest.startDateMillis, eventRequest.endDateMillis, dateOnly) {
+    val gridConfig = remember(eventRequest.startDateMillis, eventRequest.endDateMillis, eventRequest.startHour, eventRequest.endHour, dateOnly) {
         if (dateOnly) {
             // One row per day: aggregation happens by date, not time slot
             GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis, 0, 1)
         } else {
-            GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis)
+            GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis, eventRequest.startHour, eventRequest.endHour)
         }
     }
 
@@ -178,27 +181,18 @@ fun ResolutionScreen(
                 .padding(innerPadding)
                 .fillMaxSize()
         ) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+
+
+            if (!dateOnly) {
+                Surface(
+                    color = Color(0xFFF3E5F5), // Lavender-purple background
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "${eventRequest.eventEmoji} ${eventRequest.eventName.ifBlank { "Untitled Event" }}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "${responses.size} / $totalParticipants responded",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "💡 Pick the best time to confirm the event!",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color(0xFF6A1B9A) // Deep amethyst-purple text
                     )
                 }
             }
@@ -256,16 +250,28 @@ fun ResolutionScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp),
+                    .height(76.dp),
                 contentAlignment = Alignment.Center
             ) {
                 if (showFriendAvailabilities) {
-                    LegendRow(
-                        invitees = eventRequest.invitees,
-                        currentUser = currentUser,
-                        selectedFriend = selectedFriend,
-                        onFriendSelected = { selectedFriend = it }
-                    )
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Select a Friend to see when they’re available",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF6C5CE7),
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 2.dp)
+                        )
+                        LegendRow(
+                            invitees = eventRequest.invitees,
+                            currentUser = currentUser,
+                            selectedFriend = selectedFriend,
+                            onFriendSelected = { selectedFriend = it }
+                        )
+                    }
                 } else {
                     // Gradient legend (heatmap legend)
                     Row(
@@ -317,11 +323,21 @@ fun ResolutionScreen(
             }
 
             // Heatmap grid or calendar month view with vertical scrolling
+            val heatmapScrollState = rememberScrollState()
+            LaunchedEffect(heatmapScrollState.maxValue, dateOnly) {
+                if (!dateOnly && heatmapScrollState.maxValue > 0) {
+                    heatmapScrollState.scrollTo(heatmapScrollState.maxValue)
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
+                    .then(
+                        if (dateOnly) Modifier.verticalScroll(heatmapScrollState)
+                        else Modifier
+                    )
             ) {
                 if (dateOnly) {
                     HeatmapMonthCalendar(
@@ -373,6 +389,8 @@ fun ResolutionScreen(
                         responses = responses,
                         showFriendAvailabilities = showFriendAvailabilities,
                         selectedFriend = selectedFriend,
+                        eventRequest = eventRequest,
+                        verticalScrollState = heatmapScrollState,
                         onCellTapped = { tapped ->
                             val current = selectedRange
                             selectedRange = when {
@@ -491,10 +509,15 @@ private fun HeatmapGrid(
     invitees: List<Invitee> = emptyList(),
     responses: Map<String, ParticipantResponse> = emptyMap(),
     showFriendAvailabilities: Boolean = false,
-    selectedFriend: String? = null
+    selectedFriend: String? = null,
+    eventRequest: EventRequest = EventRequest(),
+    verticalScrollState: ScrollState = rememberScrollState()
 ) {
     val labelColWidth = 48.dp
     val cellHeight = 28.dp
+    val headerHeight = 24.dp
+    val horizontalScrollState = rememberScrollState()
+    val density = LocalDensity.current
 
     // Time-order key: column (day) first, then row (hour).
     fun timeKey(index: Int): Int =
@@ -506,147 +529,192 @@ private fun HeatmapGrid(
         minOf(ka, kb)..maxOf(ka, kb)
     }
 
+    val colList = remember(eventRequest.selectedDatesList, gridConfig.startDateMillis) {
+        if (eventRequest.selectedDatesList.isEmpty()) {
+            (0 until gridConfig.cols).toList()
+        } else {
+            eventRequest.selectedDatesList.map {
+                ((it - gridConfig.startDateMillis) / 86400000L).toInt()
+            }.filter { it in 0 until gridConfig.cols }.sorted()
+        }
+    }
+
     BoxWithConstraints(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxSize()
     ) {
-        val cols = gridConfig.cols.coerceAtLeast(1)
+        val cols = colList.size.coerceAtLeast(1)
         val cellWidth: Dp = maxOf((maxWidth - labelColWidth) / cols, 56.dp)
 
-        Row(modifier = Modifier.fillMaxWidth()) {
-            // Hour label column
-            Column(
-                modifier = Modifier
-                    .width(labelColWidth)
-                    .padding(top = 18.dp) // Adjust based on Day header height
-            ) {
-                gridConfig.hourLabels.forEach { label ->
-                    Box(
-                        modifier = Modifier
-                            .height(cellHeight)
-                            .width(labelColWidth),
-                        contentAlignment = Alignment.CenterEnd
-                    ) {
-                        Text(
-                            text = if (dateOnly) "" else label,
-                            fontSize = 9.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(end = 4.dp)
-                        )
-                    }
+        val gapWidth = 16.dp
+
+        val totalGridWidth = with(density) {
+            var w = cellWidth.toPx() * cols
+            colList.forEachIndexed { index, colIdx ->
+                if (index < colList.size - 1 && colList[index + 1] != colIdx + 1) {
+                    w += gapWidth.toPx()
                 }
             }
+            w.toDp()
+        }
 
-            // Grid column
-            Column(
-                modifier = Modifier
-                    .horizontalScroll(rememberScrollState())
-                    .width(cellWidth * cols)
-            ) {
-                // Day headers
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    gridConfig.dayLabels.forEach { day ->
+        Column(modifier = Modifier.fillMaxSize()) {
+            // 1. Day headers row (Fixed vertically, scrollable horizontally)
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Spacer(modifier = Modifier.width(labelColWidth))
+
+                Row(
+                    modifier = Modifier
+                        .horizontalScroll(horizontalScrollState)
+                        .width(totalGridWidth)
+                        .height(headerHeight),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    colList.forEachIndexed { index, colIdx ->
                         Text(
-                            text = day,
+                            text = gridConfig.dayLabels.getOrElse(colIdx) { "?" },
                             modifier = Modifier.width(cellWidth),
                             textAlign = TextAlign.Center,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = 1
                         )
+                        if (index < colList.size - 1 && colList[index + 1] != colIdx + 1) {
+                            Spacer(modifier = Modifier.width(gapWidth))
+                        }
+                    }
+                }
+            }
+
+            // 2. Hour labels column & scrollable cells (scrollable vertically)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(verticalScrollState)
+            ) {
+                // Fixed hour-label column
+                Column(
+                    modifier = Modifier.width(labelColWidth)
+                ) {
+                    gridConfig.hourLabels.forEach { label ->
+                        Box(
+                            modifier = Modifier
+                                .height(cellHeight)
+                                .width(labelColWidth),
+                            contentAlignment = Alignment.CenterEnd
+                        ) {
+                            Text(
+                                text = if (dateOnly) "" else label,
+                                fontSize = 9.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
+                        }
                     }
                 }
 
-                // Heat cells
-                gridConfig.hourLabels.forEachIndexed { rowIdx, _ ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(cellHeight)
-                    ) {
-                        repeat(gridConfig.cols) { colIdx ->
-                            val cellIndex = gridConfig.cellIndex(rowIdx, colIdx)
-                            val count = heatmap[cellIndex] ?: 0
-                            val safeTotal = totalParticipants.coerceAtLeast(1)
-                            val ratio = count.toFloat() / safeTotal
-                            val isSelected = rangeKeys != null && timeKey(cellIndex) in rangeKeys
-
-                            val isSelectedFriendAvailable = if (showFriendAvailabilities && selectedFriend != null) {
-                                responses[selectedFriend]?.availability?.contains(gridConfig.cellToTimestamp(cellIndex)) == true
-                            } else false
-
-                            val selectedFriendColor = if (showFriendAvailabilities && selectedFriend != null) {
-                                val friendInvitee = invitees.find { it.name == selectedFriend }
-                                friendInvitee?.let { CuratedParticipantColors.getOrElse(it.colorIndex) { Color.Gray } } ?: Color.Gray
-                            } else null
-
-                            val availableInvitees = remember(invitees, responses, cellIndex, showFriendAvailabilities) {
-                                if (!showFriendAvailabilities) emptyList()
-                                else invitees.filter { invitee ->
-                                    responses[invitee.name]?.availability?.contains(gridConfig.cellToTimestamp(cellIndex)) == true
-                                }
-                            }
-
-                            val bg = when {
-                                showFriendAvailabilities && selectedFriendColor != null -> {
-                                    if (isSelectedFriendAvailable) selectedFriendColor else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                                }
-                                showFriendAvailabilities -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                                count > 0 -> heatColor(ratio)
-                                else -> MaterialTheme.colorScheme.surfaceVariant
-                            }
-
-                            Box(
+                // Scrollable cell columns
+                Box(
+                    modifier = Modifier
+                        .horizontalScroll(horizontalScrollState)
+                        .width(totalGridWidth)
+                ) {
+                    Column {
+                        gridConfig.hourLabels.forEachIndexed { rowIdx, _ ->
+                            Row(
                                 modifier = Modifier
-                                    .width(cellWidth)
-                                    .fillMaxHeight()
-                                    .padding(1.5.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(bg)
-                                    .then(
-                                        if (isSelected) {
-                                            // Static border for the selected range (pulse removed)
-                                            Modifier.border(
-                                                width = 2.dp,
-                                                color = MaterialTheme.colorScheme.tertiary,
-                                                shape = RoundedCornerShape(6.dp)
-                                            )
-                                        } else Modifier
-                                    )
-                                    .clickable { if (count > 0) onCellTapped(cellIndex) },
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .height(cellHeight)
                             ) {
-                                if (showFriendAvailabilities) {
-                                    if (selectedFriend == null) {
-                                        val dotSize = when {
-                                            availableInvitees.size > 6 -> 5.dp
-                                            availableInvitees.size > 4 -> 7.dp
-                                            else -> 9.dp
-                                        }
-                                        val spacing = when {
-                                            availableInvitees.size > 6 -> (-2).dp
-                                            availableInvitees.size > 4 -> 1.dp
-                                            else -> 3.dp
-                                        }
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(spacing, Alignment.CenterHorizontally),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            availableInvitees.forEach { invitee ->
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(dotSize)
-                                                        .background(CuratedParticipantColors.getOrElse(invitee.colorIndex) { Color.Gray }, CircleShape)
-                                                )
-                                            }
+                                colList.forEachIndexed { index, colIdx ->
+                                    val cellIndex = gridConfig.cellIndex(rowIdx, colIdx)
+                                    val count = heatmap[cellIndex] ?: 0
+                                    val safeTotal = totalParticipants.coerceAtLeast(1)
+                                    val ratio = count.toFloat() / safeTotal
+                                    val isSelected = rangeKeys != null && timeKey(cellIndex) in rangeKeys
+
+                                    val isSelectedFriendAvailable = if (showFriendAvailabilities && selectedFriend != null) {
+                                        responses[selectedFriend]?.availability?.contains(gridConfig.cellToTimestamp(cellIndex)) == true
+                                    } else false
+
+                                    val selectedFriendColor = if (showFriendAvailabilities && selectedFriend != null) {
+                                        val friendInvitee = invitees.find { it.name == selectedFriend }
+                                        friendInvitee?.let { CuratedParticipantColors.getOrElse(it.colorIndex) { Color.Gray } } ?: Color.Gray
+                                    } else null
+
+                                    val availableInvitees = remember(invitees, responses, cellIndex, showFriendAvailabilities) {
+                                        if (!showFriendAvailabilities) emptyList()
+                                        else invitees.filter { invitee ->
+                                            responses[invitee.name]?.availability?.contains(gridConfig.cellToTimestamp(cellIndex)) == true
                                         }
                                     }
-                                } else if (count > 0) {
-                                    Text(
-                                        text = "$count",
-                                        fontSize = 9.sp,
-                                        color = if (ratio > 0.5f) Color.White else MaterialTheme.colorScheme.onSurface,
-                                        fontWeight = FontWeight.Bold
-                                    )
+
+                                    val bg = when {
+                                        showFriendAvailabilities && selectedFriendColor != null -> {
+                                            if (isSelectedFriendAvailable) selectedFriendColor else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                        }
+                                        showFriendAvailabilities -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                        count > 0 -> heatColor(ratio)
+                                        else -> MaterialTheme.colorScheme.surfaceVariant
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .width(cellWidth)
+                                            .fillMaxHeight()
+                                            .padding(1.5.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(bg)
+                                            .then(
+                                                if (isSelected) {
+                                                    Modifier.border(
+                                                        width = 2.dp,
+                                                        color = MaterialTheme.colorScheme.tertiary,
+                                                        shape = RoundedCornerShape(6.dp)
+                                                    )
+                                                } else Modifier
+                                            )
+                                            .clickable { if (count > 0) onCellTapped(cellIndex) },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (showFriendAvailabilities) {
+                                            if (selectedFriend == null) {
+                                                val dotSize = when {
+                                                    availableInvitees.size > 6 -> 5.dp
+                                                    availableInvitees.size > 4 -> 7.dp
+                                                    else -> 9.dp
+                                                }
+                                                val spacing = when {
+                                                    availableInvitees.size > 6 -> (-2).dp
+                                                    availableInvitees.size > 4 -> 1.dp
+                                                    else -> 3.dp
+                                                }
+                                                Row(
+                                                    horizontalArrangement = Arrangement.spacedBy(spacing, Alignment.CenterHorizontally),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    availableInvitees.forEach { invitee ->
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(dotSize)
+                                                                .background(CuratedParticipantColors.getOrElse(invitee.colorIndex) { Color.Gray }, CircleShape)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        } else if (count > 0) {
+                                            Text(
+                                                text = "$count",
+                                                fontSize = 9.sp,
+                                                color = if (ratio > 0.5f) Color.White else MaterialTheme.colorScheme.onSurface,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+
+                                    if (index < colList.size - 1 && colList[index + 1] != colIdx + 1) {
+                                        Spacer(modifier = Modifier.width(gapWidth))
+                                    }
                                 }
                             }
                         }
@@ -751,13 +819,19 @@ private fun FinalSummarySheet(
         }
     }
 
-    val availabilityConfig =
-        if (dateOnly) gridConfig
-        else GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis, eventRequest.startHour, eventRequest.endHour)
-
-    val selectedTimestamps = remember(selectedRange, availabilityConfig) {
+    val selectedTimestamps = remember(selectedRange, gridConfig, dateOnly) {
         selectedRange?.let { (start, end) ->
-            (minOf(start, end)..maxOf(start, end)).map { availabilityConfig.cellToTimestamp(it) }
+            if (dateOnly) {
+                (minOf(start, end)..maxOf(start, end)).map { gridConfig.cellToTimestamp(it) }
+            } else {
+                fun timeKey(index: Int): Int =
+                    (index % gridConfig.cols) * gridConfig.rows + (index / gridConfig.cols)
+                val minKey = minOf(timeKey(start), timeKey(end))
+                val maxKey = maxOf(timeKey(start), timeKey(end))
+                (0 until gridConfig.totalCells)
+                    .filter { cell -> timeKey(cell) in minKey..maxKey }
+                    .map { gridConfig.cellToTimestamp(it) }
+            }
         } ?: emptyList()
     }
 

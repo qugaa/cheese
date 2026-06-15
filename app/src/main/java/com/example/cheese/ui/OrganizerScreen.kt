@@ -42,6 +42,8 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
@@ -67,7 +69,12 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -89,6 +96,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.abs
 import com.example.cheese.ui.theme.CuratedParticipantColors
 import com.example.cheese.viewmodel.ScheduleViewModel
 import com.example.cheese.data.DateOffset
@@ -97,6 +105,8 @@ import com.example.cheese.data.GridConfig
 import com.example.cheese.data.ParticipantResponse
 import com.example.cheese.data.Invitee
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import androidx.compose.ui.window.DialogProperties
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -110,7 +120,7 @@ val COMMON_EMOJIS = listOf("📅", "🍔", "🏀", "🎮", "🍻", "🎬", "📚
 @Composable
 fun OrganizerScreen(
     viewModel: ScheduleViewModel,
-    onRequestSent: (Boolean) -> Unit,
+    onRequestSent: () -> Unit,
     onBack: () -> Unit
 ) {
     val eventRequest by viewModel.eventRequest.collectAsState()
@@ -131,6 +141,8 @@ fun OrganizerScreen(
     var emojiList by remember { mutableStateOf(COMMON_EMOJIS) }
     var showAddEmojiDialog by remember { mutableStateOf(false) }
     var emojiToDelete by remember { mutableStateOf<String?>(null) }
+    var showTimePickerDialog by remember { mutableStateOf(false) }
+    var showValidationErrors by remember { mutableStateOf(false) }
 
     val isEventNameValid = eventRequest.eventName.isNotBlank()
     val isDateRangeValid = eventRequest.startDateMillis > 0L && eventRequest.endDateMillis > 0L
@@ -301,7 +313,12 @@ fun OrganizerScreen(
                                 viewModel.updateEventName(it)
                             }
                         },
-                        label = { Text("Event Name") },
+                        label = {
+                            Row {
+                                Text("Event Name")
+                                Text(" *", color = MaterialTheme.colorScheme.error)
+                            }
+                        },
                         placeholder = { Text("e.g., Team Retrospective") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
@@ -309,41 +326,17 @@ fun OrganizerScreen(
                         colors = OutlinedTextFieldDefaults.colors(
                             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                             focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
-                        )
-                    )
-                }
-            }
-
-            // ── Card 2: Temporal Boundaries ──────────────────────────────────
-            ElevatedCard(
-                modifier = Modifier
-                    .fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Availability Window",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-
-                    HorizontalMonthCalendar(
-                        selectedDayMillis = eventRequest.selectedDatesList,
-                        onDayToggled = { day ->
-                            viewModel.toggleSelectedDateInRequest(day)
-                        },
-                        onRangeDragged = { start, end, isSelecting ->
-                            viewModel.addSelectedDatesRangeInRequest(start, end, isSelecting)
-                        },
-                        onDragStateChanged = { interacting ->
-                            scrollEnabled = !interacting
+                        ),
+                        isError = showValidationErrors && !isEventNameValid,
+                        supportingText = {
+                            if (showValidationErrors && !isEventNameValid) {
+                                Text("Event name is required", color = MaterialTheme.colorScheme.error)
+                            }
                         }
                     )
                 }
             }
-
-            // ── Card 3: Invitee Management & Color Customization ─────────────
+            // ── Card 2: Invitee Management & Color Customization ─────────────
             OutlinedCard(
                 modifier = Modifier
                     .fillMaxWidth(),
@@ -478,6 +471,96 @@ fun OrganizerScreen(
                 }
             }
 
+            // ── Card 3: Temporal Boundaries ──────────────────────────────────
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(modifier = Modifier.padding(bottom = 8.dp)) {
+                        Text(
+                            text = "Availability Window",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = " *",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+
+                    HorizontalMonthCalendar(
+                        selectedDayMillis = eventRequest.selectedDatesList,
+                        onDayToggled = { day ->
+                            viewModel.toggleSelectedDateInRequest(day)
+                        },
+                        onRangeDragged = { start, end, isSelecting ->
+                            viewModel.addSelectedDatesRangeInRequest(start, end, isSelecting)
+                        },
+                        onDragStateChanged = { interacting ->
+                            scrollEnabled = !interacting
+                        }
+                    )
+
+                    val selectedDatesList = eventRequest.selectedDatesList
+                    if (selectedDatesList.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Specific Hours",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        
+                        val draftCells by viewModel.draftAvailability.collectAsState()
+                        
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showTimePickerDialog = true
+                                },
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+                            colors = CardDefaults.cardColors(
+                                containerColor = Color.Transparent
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = if (draftCells.isEmpty()) "All-Day" else "You Selected Specific Hours",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = if (draftCells.isEmpty()) {
+                                            "Tap to specify particular hours of the day."
+                                        } else {
+                                            "Tap to edit"
+                                        },
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = "Edit times",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(8.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -492,33 +575,35 @@ fun OrganizerScreen(
 
             Spacer(Modifier.height(16.dp))
 
+            val draftCells by viewModel.draftAvailability.collectAsState()
+
             Button(
                 onClick = {
-                    viewModel.updateDateOnlyMode(false)
-                    viewModel.finalizeEventRequest()
-                    if (saveAsTemplate) {
-                        viewModel.saveTemplate(
-                            EventTemplate(
-                                emoji = eventRequest.eventEmoji,
-                                name = eventRequest.eventName,
-                                invitees = eventRequest.invitees.map { it.name }
-                            )
-                        )
+                    showValidationErrors = true
+                    if (!isEventNameValid) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar("Event Name is required")
+                        }
+                        return@Button
                     }
-                    onRequestSent(false)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                enabled = isFormValid,
-                shape = RoundedCornerShape(28.dp)
-            ) {
-                Text("Pick Specific Time Slots")
-            }
+                    if (!isDateRangeValid) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar("Availability window (dates) must be selected")
+                        }
+                        return@Button
+                    }
+                    if (!hasInvitees) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar("Please invite at least one participant")
+                        }
+                        return@Button
+                    }
 
-            OutlinedButton(
-                onClick = {
-                    viewModel.finalizeDateOnlyEventRequest()
+                    if (draftCells.isEmpty()) {
+                        viewModel.finalizeDateOnlyEventRequest()
+                    } else {
+                        viewModel.finalizeEventWithSpecificTimeSlots()
+                    }
                     if (saveAsTemplate) {
                         viewModel.saveTemplate(
                             EventTemplate(
@@ -528,18 +613,131 @@ fun OrganizerScreen(
                             )
                         )
                     }
-                    onRequestSent(true)
+                    onRequestSent()
                 },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 16.dp),
-                enabled = isFormValid,
-                shape = RoundedCornerShape(28.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.primary
-                )
+                shape = RoundedCornerShape(28.dp)
             ) {
-                Text("Send Event Directly (Date Only)")
+                Text(
+                    text = "Request Availabilities"
+                )
+            }
+        }
+
+        if (showTimePickerDialog) {
+            val config = remember(eventRequest.selectedDatesList) {
+                GridConfig(
+                    startDateMillis = eventRequest.startDateMillis,
+                    endDateMillis = eventRequest.endDateMillis,
+                    startHour = 0,
+                    endHour = 24
+                )
+            }
+            
+            var gridScrollEnabled by remember { mutableStateOf(true) }
+            val draftCells by viewModel.draftAvailability.collectAsState()
+            
+            val visibleCols = remember(eventRequest.selectedDatesList, eventRequest.startDateMillis) {
+                eventRequest.selectedDatesList.map {
+                    ((it - eventRequest.startDateMillis) / 86400000L).toInt()
+                }.sorted()
+            }
+
+            val gridScrollState = rememberScrollState()
+            LaunchedEffect(gridScrollState.maxValue) {
+                if (gridScrollState.maxValue > 0) {
+                    gridScrollState.scrollTo(gridScrollState.maxValue)
+                }
+            }
+            
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { showTimePickerDialog = false },
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 6.dp,
+                    modifier = Modifier
+                        .fillMaxWidth(0.98f)
+                        .fillMaxHeight(0.95f)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text(
+                            text = "Specify Time Slots",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        var showDragHint by remember { mutableStateOf(true) }
+                        Text(
+                            text = "Paint the hours that work. Participants can only choose within these times.",
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                        ) {
+                            AvailabilityGrid(
+                                gridConfig = config,
+                                selectedCells = draftCells,
+                                heatmap = emptyMap(),
+                                conflictingCells = emptySet(),
+                                totalParticipants = 1,
+                                onCellToggled = { index ->
+                                    viewModel.toggleCell(index)
+                                },
+                                onCellPainted = { index, isSelecting ->
+                                    viewModel.paintCell(index, isSelecting)
+                                },
+                                scrollEnabled = gridScrollEnabled,
+                                onDragStateChanged = { interacting ->
+                                    gridScrollEnabled = !interacting
+                                },
+                                visibleCols = visibleCols,
+                                verticalScrollState = gridScrollState
+                            )
+                            if (showDragHint) {
+                                DragGestureHintOverlay(
+                                    onDismiss = { showDragHint = false },
+                                    backgroundAlpha = 0.35f
+                                )
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    viewModel.clearDraftAvailability()
+                                    showTimePickerDialog = false
+                                }
+                            ) {
+                                Text("Reset to All-Day")
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = { showTimePickerDialog = false }
+                            ) {
+                                Text("Confirm")
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -716,7 +914,7 @@ private fun MonthDaysGrid(
                         var currentEnd = firstDate
                         val isSelecting = firstDate !in currentSelectedDates
 
-                        currentOnDragStateChanged?.invoke(true)
+                        var hasNotifiedDragStart = false
 
                         while (true) {
                             val event = awaitPointerEvent()
@@ -725,9 +923,18 @@ private fun MonthDaysGrid(
                                 break
                             }
                             val dragDate = dateAt(change.position)
-                            val distance = (change.position - down.position).getDistance()
-                            if (distance > viewConfiguration.touchSlop) {
-                                isDrag = true
+                            val dragAmount = change.position - down.position
+                            if (!isDrag) {
+                                if (abs(dragAmount.x) > viewConfiguration.touchSlop) {
+                                    isDrag = true
+                                    if (!hasNotifiedDragStart) {
+                                        currentOnDragStateChanged?.invoke(true)
+                                        hasNotifiedDragStart = true
+                                    }
+                                } else if (abs(dragAmount.y) > viewConfiguration.touchSlop) {
+                                    // Vertical drag detected first; abort range selection so the parent can scroll
+                                    break
+                                }
                             }
                             if (isDrag && dragDate != null) {
                                 val isDragEnabled = !dragDate.isBefore(minDate) &&
@@ -738,10 +945,14 @@ private fun MonthDaysGrid(
                                     currentOnRangeDragged?.invoke(firstDate.toUtcMillis(), currentEnd.toUtcMillis(), isSelecting)
                                 }
                             }
-                            change.consume()
+                            if (isDrag) {
+                                change.consume()
+                            }
                         }
 
-                        currentOnDragStateChanged?.invoke(false)
+                        if (hasNotifiedDragStart) {
+                            currentOnDragStateChanged?.invoke(false)
+                        }
                     }
                 }
             }

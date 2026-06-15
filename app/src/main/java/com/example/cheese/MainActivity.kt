@@ -156,14 +156,10 @@ fun CheeseApp() {
         composable("organizer") {
             OrganizerScreen(
                 viewModel = scheduleViewModel,
-                onRequestSent = { isDirectSend ->
-                    if (isDirectSend) {
-                        scheduleViewModel.setDashboardMessage("Event Created!")
-                        navController.navigate("dashboard") {
-                            popUpTo("dashboard") { inclusive = true }
-                        }
-                    } else {
-                        navController.navigate("participant")
+                onRequestSent = {
+                    scheduleViewModel.setDashboardMessage("Event Created!")
+                    navController.navigate("dashboard") {
+                        popUpTo("dashboard") { inclusive = true }
                     }
                 },
                 onBack = { navController.navigateUp() }

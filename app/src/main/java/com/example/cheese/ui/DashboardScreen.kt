@@ -47,9 +47,18 @@ import kotlinx.coroutines.launch
 import com.example.cheese.ui.theme.CuratedParticipantColors
 import com.example.cheese.data.GridConfig
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import kotlin.math.roundToInt
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.format.TextStyle
+import java.util.Locale
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 
 val eventComparator = java.util.Comparator<EventState> { a, b ->
     val aConfirmed = a.finalCellIndex != null
@@ -93,7 +102,21 @@ fun DashboardScreen(
     val coroutineScope = rememberCoroutineScope()
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Events", "Friends")
+
+    val context = LocalContext.current
+    var showExplanationDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentUser) {
+        currentUser?.let { username ->
+            val prefs = context.getSharedPreferences("cheese_prefs", android.content.Context.MODE_PRIVATE)
+            val hasSeen = prefs.getBoolean("has_seen_explanation_$username", false)
+            if (!hasSeen) {
+                showExplanationDialog = true
+                prefs.edit().putBoolean("has_seen_explanation_$username", true).apply()
+            }
+        }
+    }
+    val tabs = listOf("Events", "Your Calendar", "Friends")
 
     LaunchedEffect(currentUser) {
         if (currentUser == null) {
@@ -121,6 +144,23 @@ fun DashboardScreen(
             TopAppBar(
                 title = { Text(currentUser?.let { "Welcome, $it" } ?: "My Events") },
                 actions = {
+                    IconButton(onClick = { showExplanationDialog = true }) {
+                        Box(
+                            modifier = Modifier
+                                .size(26.dp)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), CircleShape)
+                                .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "?",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
                     TextButton(onClick = { viewModel.logout() }) {
                         Text(
                             text = "Logout",
@@ -204,7 +244,9 @@ fun DashboardScreen(
                 }
 
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFFF9F9FB)),
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
                     item {
@@ -273,7 +315,7 @@ fun DashboardScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "No events scheduled.\nTap a template or the + button.",
+                                    text = "No events scheduled.\nTap the + button and start planning!",
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center
@@ -331,6 +373,9 @@ fun DashboardScreen(
                                         onClick = {
                                             viewModel.selectEvent(eventState.request.id)
                                             onOpenEvent(eventState.request.id)
+                                        },
+                                        onAddParticipant = { name, callback ->
+                                            viewModel.addParticipantToExistingEvent(eventState.request.id, name, callback)
                                         }
                                     )
                                 }
@@ -361,6 +406,9 @@ fun DashboardScreen(
                                         onClick = {
                                             viewModel.selectEvent(eventState.request.id)
                                             onOpenEvent(eventState.request.id)
+                                        },
+                                        onAddParticipant = { name, callback ->
+                                            viewModel.addParticipantToExistingEvent(eventState.request.id, name, callback)
                                         }
                                     )
                                 }
@@ -393,6 +441,19 @@ fun DashboardScreen(
                         }
                     }
                 }
+            } else if (selectedTabIndex == 1) {
+                // Your Calendar Tab
+                CalendarTab(
+                    events = events,
+                    currentUser = currentUser,
+                    onOpenEvent = { eventId ->
+                        viewModel.selectEvent(eventId)
+                        onOpenEvent(eventId)
+                    },
+                    onDeleteEvent = { eventId ->
+                        viewModel.deleteEvent(eventId)
+                    }
+                )
             } else {
                 // Friends Tab
                 var searchQuery by remember { mutableStateOf("") }
@@ -628,6 +689,89 @@ fun DashboardScreen(
             successOverlayMessage = null
         }
     }
+
+    if (showExplanationDialog) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showExplanationDialog = false }
+        ) {
+            Surface(
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Header emoji/badge
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .background(
+                                MaterialTheme.colorScheme.primaryContainer,
+                                CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🧀", fontSize = 32.sp)
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Text(
+                        text = "How Cheese Works",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    // Steps
+                    ExplanationStep(
+                        stepNumber = "1",
+                        title = "Create an Event",
+                        description = "Pick proposed dates and invite your friends.",
+                        emoji = "📅"
+                    )
+                    
+                    VerticalArrow()
+                    
+                    ExplanationStep(
+                        stepNumber = "2",
+                        title = "Collect Availabilities",
+                        description = "Wait for your friends to respond with their availabilities.",
+                        emoji = "💬"
+                    )
+                    
+                    VerticalArrow()
+                    
+                    ExplanationStep(
+                        stepNumber = "3",
+                        title = "Finalize & Confirm",
+                        description = "Pick the best time to confirm the event!",
+                        emoji = "🎉"
+                    )
+                    
+                    Spacer(modifier = Modifier.height(28.dp))
+                    
+                    Button(
+                        onClick = { showExplanationDialog = false },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text(
+                            text = "Got it!",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -641,7 +785,7 @@ private fun TemplateCard(template: EventTemplate, onClick: () -> Unit, onDeleteC
             modifier = Modifier
                 .fillMaxSize()
                 .clickable { onClick() },
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(40.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
         ) {
             Column(
@@ -659,16 +803,18 @@ private fun TemplateCard(template: EventTemplate, onClick: () -> Unit, onDeleteC
                 Column {
                     Text(
                         text = template.name,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        maxLines = 1
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = 16.sp
                     )
                     Text(
                         text = "${template.invitees.size} invited",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
-                        maxLines = 2
+                        maxLines = 1
                     )
                 }
             }
@@ -725,7 +871,7 @@ private fun FinalizedEventCard(
             modifier = Modifier
                 .fillMaxSize()
                 .clickable { onClick() },
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(40.dp),
             colors = CardDefaults.cardColors(containerColor = Color.Transparent)
         ) {
             Box(
@@ -862,13 +1008,15 @@ fun EventCard(
     currentUser: String? = null,
     isActionNeeded: Boolean = false,
     onDelete: () -> Unit,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onAddParticipant: ((String, (Boolean, String) -> Unit) -> Unit)? = null
 ) {
     val density = LocalDensity.current
     val maxRevealPx = with(density) { 100.dp.toPx() }
     val offsetX = remember { androidx.compose.animation.core.Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
     var showInfoDialog by remember { mutableStateOf(false) }
+    val isHost = eventState.request.invitees.firstOrNull()?.name == currentUser
 
     Box(
         modifier = Modifier
@@ -880,7 +1028,7 @@ fun EventCard(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(color, RoundedCornerShape(12.dp))
+                .background(color, RoundedCornerShape(32.dp))
                 .clickable {
                     onDelete()
                 }
@@ -899,6 +1047,19 @@ fun EventCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .offset { androidx.compose.ui.unit.IntOffset(offsetX.value.roundToInt(), 0) }
+                .then(
+                    if (isActionNeeded) {
+                        Modifier.shadow(
+                            elevation = 6.dp,
+                            shape = RoundedCornerShape(32.dp),
+                            clip = false,
+                            ambientColor = Color(0x40E53935),
+                            spotColor = Color(0x40E53935)
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
@@ -923,7 +1084,7 @@ fun EventCard(
                         }
                     )
                 },
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(32.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = if (isActionNeeded) {
                 BorderStroke(1.dp, Color(0xFFFFCDD2))
@@ -942,17 +1103,29 @@ fun EventCard(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Emoji container
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = eventState.request.eventEmoji,
-                        fontSize = 24.sp
-                    )
+                // Emoji container with notification badge if action needed
+                Box {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = eventState.request.eventEmoji,
+                            fontSize = 24.sp
+                        )
+                    }
+                    if (isActionNeeded) {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .align(Alignment.TopEnd)
+                                .offset(x = 2.dp, y = (-2).dp)
+                                .background(Color.Red, CircleShape)
+                                .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(16.dp))
@@ -967,7 +1140,6 @@ fun EventCard(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     
-                    val isHost = eventState.request.invitees.firstOrNull()?.name == currentUser
                     val hasSubmitted = eventState.responses.containsKey(currentUser)
                     val isOrganizerFinalization = isActionNeeded && isHost && hasSubmitted
 
@@ -1010,7 +1182,6 @@ fun EventCard(
                 }
 
                 // Action / Status tag on the right
-                val isHost = eventState.request.invitees.firstOrNull()?.name == currentUser
                 val hasSubmitted = eventState.responses.containsKey(currentUser)
                 val allResponded = eventState.responses.size >= eventState.request.invitees.size && eventState.request.invitees.isNotEmpty()
 
@@ -1186,6 +1357,92 @@ fun EventCard(
                             }
                         }
                     }
+                    
+                    if (isHost && onAddParticipant != null) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        Text(
+                            text = "Add Participant",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        var newParticipantName by remember { mutableStateOf("") }
+                        var errorMessage by remember { mutableStateOf<String?>(null) }
+                        var successMessage by remember { mutableStateOf<String?>(null) }
+                        var isLoading by remember { mutableStateOf(false) }
+                        
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = newParticipantName,
+                                    onValueChange = { 
+                                        newParticipantName = it
+                                        errorMessage = null
+                                        successMessage = null
+                                    },
+                                    placeholder = { Text("Enter username...") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                    ),
+                                    enabled = !isLoading
+                                )
+                                Button(
+                                    onClick = {
+                                        if (newParticipantName.isNotBlank()) {
+                                            isLoading = true
+                                            onAddParticipant(newParticipantName) { success, msg ->
+                                                isLoading = false
+                                                if (success) {
+                                                    newParticipantName = ""
+                                                    successMessage = msg
+                                                    errorMessage = null
+                                                } else {
+                                                    errorMessage = msg
+                                                    successMessage = null
+                                                }
+                                            }
+                                        }
+                                    },
+                                    enabled = newParticipantName.isNotBlank() && !isLoading,
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    if (isLoading) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                            strokeWidth = 2.dp
+                                        )
+                                    } else {
+                                        Text("Add")
+                                    }
+                                }
+                            }
+                            if (errorMessage != null) {
+                                Text(
+                                    text = errorMessage!!,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(start = 4.dp)
+                                )
+                            }
+                            if (successMessage != null) {
+                                Text(
+                                    text = successMessage!!,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF166534),
+                                    modifier = Modifier.padding(start = 4.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -1194,5 +1451,278 @@ fun EventCard(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun ExplanationStep(
+    stepNumber: String,
+    title: String,
+    description: String,
+    emoji: String
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(16.dp)
+            )
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .background(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = emoji,
+                fontSize = 20.sp
+            )
+        }
+        
+        Spacer(modifier = Modifier.width(12.dp))
+        
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "$stepNumber. $title",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun VerticalArrow() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .width(2.dp)
+                .height(16.dp)
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+        )
+    }
+}
+
+@Composable
+private fun CalendarTab(
+    events: List<EventState>,
+    currentUser: String?,
+    onOpenEvent: (String) -> Unit,
+    onDeleteEvent: (String) -> Unit
+) {
+    var currentMonth by remember { mutableStateOf(YearMonth.now()) }
+    var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
+    
+    val confirmedEventsByDate = remember(events) {
+        val map = mutableMapOf<LocalDate, MutableList<EventState>>()
+        events.forEach { eventState ->
+            val finalIndex = eventState.finalCellIndex
+            if (finalIndex != null) {
+                val isDateOnly = eventState.request.dateOnlyMode
+                val config = if (isDateOnly) {
+                    GridConfig(eventState.request.startDateMillis, eventState.request.endDateMillis, 0, 1)
+                } else {
+                    GridConfig(eventState.request.startDateMillis, eventState.request.endDateMillis, eventState.request.startHour, eventState.request.endHour)
+                }
+                val timestamp = config.cellToTimestamp(finalIndex)
+                val date = java.time.Instant.ofEpochMilli(timestamp).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+                map.getOrPut(date) { mutableListOf() }.add(eventState)
+            }
+        }
+        map
+    }
+    
+    val daysInMonth = currentMonth.lengthOfMonth()
+    val firstDayOfMonth = currentMonth.atDay(1)
+    val leadingBlanks = firstDayOfMonth.dayOfWeek.value - 1
+    val totalCells = leadingBlanks + daysInMonth
+    val weeks = (totalCells + 6) / 7
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF9F9FB))
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    IconButton(onClick = { currentMonth = currentMonth.minusMonths(1) }) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous Month")
+                    }
+                    Text(
+                        text = "${currentMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault())} ${currentMonth.year}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    IconButton(onClick = { currentMonth = currentMonth.plusMonths(1) }) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next Month")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su").forEach { dayLabel ->
+                        Text(
+                            text = dayLabel,
+                            modifier = Modifier.weight(1f),
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    for (w in 0 until weeks) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            for (d in 0 until 7) {
+                                val cellIdx = w * 7 + d
+                                val dayNum = cellIdx - leadingBlanks + 1
+                                if (dayNum in 1..daysInMonth) {
+                                    val date = currentMonth.atDay(dayNum)
+                                    val dayEvents = confirmedEventsByDate[date] ?: emptyList()
+                                    val isSelected = selectedDate == date
+                                    
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .aspectRatio(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(
+                                                when {
+                                                    isSelected -> MaterialTheme.colorScheme.primaryContainer
+                                                    dayEvents.isNotEmpty() -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
+                                                    else -> Color.Transparent
+                                                }
+                                            )
+                                            .clickable {
+                                                selectedDate = if (isSelected) null else date
+                                            }
+                                            .padding(4.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.SpaceBetween,
+                                            modifier = Modifier.fillMaxSize()
+                                        ) {
+                                            Text(
+                                                text = dayNum.toString(),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = if (dayEvents.isNotEmpty() || isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                            )
+                                            
+                                            if (dayEvents.isNotEmpty()) {
+                                                Row(
+                                                    horizontalArrangement = Arrangement.spacedBy(1.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    dayEvents.take(3).forEach { ev ->
+                                                        Text(
+                                                            text = ev.request.eventEmoji,
+                                                            fontSize = 10.sp
+                                                        )
+                                                    }
+                                                    if (dayEvents.size > 3) {
+                                                        Text(
+                                                            text = "+",
+                                                            fontSize = 8.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                        )
+                                                    }
+                                                }
+                                            } else {
+                                                Spacer(modifier = Modifier.height(10.dp))
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Box(modifier = Modifier.weight(1f).aspectRatio(1f))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        selectedDate?.let { date ->
+            val dayEvents = confirmedEventsByDate[date] ?: emptyList()
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Confirmed Events - ${date.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())}, ${date.month.getDisplayName(java.time.format.TextStyle.SHORT, Locale.getDefault())} ${date.dayOfMonth}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                
+                if (dayEvents.isEmpty()) {
+                    Text(
+                        text = "No events scheduled for this day.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    dayEvents.forEach { eventState ->
+                        EventCard(
+                            eventState = eventState,
+                            currentUser = currentUser,
+                            isActionNeeded = false,
+                            onDelete = { onDeleteEvent(eventState.request.id) },
+                            onClick = {
+                                onOpenEvent(eventState.request.id)
+                            }
+                        )
+                    }
+                }
+            }
+        }
     }
 }

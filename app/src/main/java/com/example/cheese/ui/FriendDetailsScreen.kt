@@ -1,8 +1,10 @@
 package com.example.cheese.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
@@ -54,6 +56,7 @@ fun FriendDetailsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .background(Color(0xFFF9F9FB))
                 .padding(innerPadding),
             contentPadding = PaddingValues(bottom = 80.dp)
         ) {

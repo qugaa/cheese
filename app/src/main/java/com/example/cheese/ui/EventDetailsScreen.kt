@@ -67,11 +67,11 @@ fun EventDetailsScreen(
     val finalCellEndIndex = eventState?.finalCellEndIndex
     val dateOnly = eventRequest.dateOnlyMode
     
-    val gridConfig = remember(eventRequest.startDateMillis, eventRequest.endDateMillis, dateOnly) {
+    val gridConfig = remember(eventRequest.startDateMillis, eventRequest.endDateMillis, eventRequest.startHour, eventRequest.endHour, dateOnly) {
         if (dateOnly) {
             GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis, 0, 1)
         } else {
-            GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis)
+            GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis, eventRequest.startHour, eventRequest.endHour)
         }
     }
     val heatmap = remember(responses) { viewModel.computeHeatmap(gridConfig) }
@@ -214,12 +214,7 @@ fun EventDetailsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    val availabilityConfig = if (dateOnly) {
-                        GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis, 0, 1)
-                    } else {
-                        GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis, eventRequest.startHour, eventRequest.endHour)
-                    }
-                    val selectedTimestamps = remember(startCell, endCell, availabilityConfig) {
+                    val selectedTimestamps = remember(startCell, endCell, gridConfig, dateOnly) {
                         if (startCell == null) emptyList()
                         else {
                             val endVal = endCell ?: startCell
@@ -230,11 +225,11 @@ fun EventDetailsScreen(
                             } else {
                                 val minKey = minOf(timeKey(startCell), timeKey(endVal))
                                 val maxKey = maxOf(timeKey(startCell), timeKey(endVal))
-                                (0 until availabilityConfig.totalCells).filter { cell ->
+                                (0 until gridConfig.totalCells).filter { cell ->
                                     timeKey(cell) in minKey..maxKey
                                 }
                             }
-                            cellRange.map { availabilityConfig.cellToTimestamp(it) }
+                            cellRange.map { gridConfig.cellToTimestamp(it) }
                         }
                     }
 

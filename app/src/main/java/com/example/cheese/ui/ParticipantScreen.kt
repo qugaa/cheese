@@ -33,6 +33,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
@@ -60,6 +64,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -77,6 +82,10 @@ import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.ScrollState
+import androidx.compose.animation.core.*
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.buildAnnotatedString
@@ -177,6 +186,9 @@ fun ParticipantScreen(
     val participantName = currentUser ?: "Unknown"
     val isNewEvent = events.none { it.request.id == currentEventId }
     val isOrganizer = currentUser != null && (isNewEvent || eventState?.request?.invitees?.firstOrNull()?.name == currentUser)
+    val participantColor = remember(currentInvitee) {
+        currentInvitee?.let { CuratedParticipantColors.getOrElse(it.colorIndex) { Color(0xFF6C5CE7) } } ?: Color(0xFF6C5CE7)
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -452,8 +464,8 @@ fun ParticipantScreen(
                                 }
                             }
                         },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
                         color = Color(0xFF6A1B9A) // Deep amethyst-purple text
                     )
                 }
@@ -482,13 +494,79 @@ fun ParticipantScreen(
                         )
                     }
 
-                    if (showFriendAvailabilities) {
-                        LegendRow(
-                            invitees = eventRequest.invitees,
-                            currentUser = currentUser,
-                            selectedFriend = selectedFriend,
-                            onFriendSelected = { selectedFriend = it }
-                        )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(76.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (showFriendAvailabilities) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Select a Friend to see when they’re available",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF6C5CE7),
+                                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 2.dp)
+                                )
+                                LegendRow(
+                                    invitees = eventRequest.invitees,
+                                    currentUser = currentUser,
+                                    selectedFriend = selectedFriend,
+                                    onFriendSelected = { selectedFriend = it }
+                                )
+                            }
+                        } else if (dateOnly) {
+                            // Gradient legend (heatmap legend)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("0%", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
+                                val legendColors = listOf(
+                                    MaterialTheme.colorScheme.surfaceVariant,
+                                    Color(0xFFE8F5E9),
+                                    Color(0xFFC8E6C9),
+                                    Color(0xFFA5D6A7),
+                                    Color(0xFF81C784),
+                                    Color(0xFF66BB6A)
+                                )
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    legendColors.forEach { color ->
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                                .background(color, RoundedCornerShape(2.dp))
+                                        )
+                                    }
+                                }
+                                Text("100%", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .background(Color.Transparent)
+                                        .border(
+                                            2.dp,
+                                            MaterialTheme.colorScheme.tertiary,
+                                            RoundedCornerShape(2.dp)
+                                        )
+                                )
+                                Text("Selected", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
                     }
                 }
  
@@ -545,8 +623,8 @@ fun ParticipantScreen(
                                 append(" to paint availability.")
                             }
                         },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
                         color = Color(0xFF6A1B9A) // Deep amethyst-purple text
                     )
                 }
@@ -575,13 +653,88 @@ fun ParticipantScreen(
                         )
                     }
 
-                    if (showFriendAvailabilities) {
-                        LegendRow(
-                            invitees = eventRequest.invitees,
-                            currentUser = currentUser,
-                            selectedFriend = selectedFriend,
-                            onFriendSelected = { selectedFriend = it }
-                        )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(76.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (showFriendAvailabilities) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Select a Friend to see when they’re available",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF6C5CE7),
+                                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 2.dp)
+                                )
+                                LegendRow(
+                                    invitees = eventRequest.invitees,
+                                    currentUser = currentUser,
+                                    selectedFriend = selectedFriend,
+                                    onFriendSelected = { selectedFriend = it }
+                                )
+                            }
+                        } else {
+                            // Gradient legend (heatmap legend)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("0%", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
+                                val legendColors = listOf(
+                                    MaterialTheme.colorScheme.surfaceVariant,
+                                    Color(0xFFE8F5E9),
+                                    Color(0xFFC8E6C9),
+                                    Color(0xFFA5D6A7),
+                                    Color(0xFF81C784),
+                                    Color(0xFF66BB6A)
+                                )
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    legendColors.forEach { color ->
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                                .background(color, RoundedCornerShape(2.dp))
+                                        )
+                                    }
+                                }
+                                Text("100%", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .background(Color.Transparent)
+                                        .border(
+                                            2.dp,
+                                            MaterialTheme.colorScheme.tertiary,
+                                            RoundedCornerShape(2.dp)
+                                        )
+                                )
+                                Text("Selected", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                    }
+                }
+
+                var showDragHint by rememberSaveable { mutableStateOf(true) }
+                val verticalScrollState = rememberScrollState()
+
+                LaunchedEffect(verticalScrollState.maxValue) {
+                    if (verticalScrollState.maxValue > 0) {
+                        verticalScrollState.scrollTo(verticalScrollState.maxValue)
                     }
                 }
 
@@ -590,7 +743,6 @@ fun ParticipantScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .verticalScroll(rememberScrollState(), enabled = scrollEnabled)
                 ) {
                     AvailabilityGrid(
                         gridConfig = gridConfig,
@@ -618,8 +770,15 @@ fun ParticipantScreen(
                         scrollEnabled = scrollEnabled,
                         onDragStateChanged = { interacting ->
                             scrollEnabled = !interacting
-                        }
+                        },
+                        verticalScrollState = verticalScrollState
                     )
+
+                    if (showDragHint) {
+                        DragGestureHintOverlay(
+                            onDismiss = { showDragHint = false }
+                        )
+                    }
                 }
             }
         }
@@ -705,7 +864,7 @@ fun ParticipantScreen(
  * - Supports both tap (toggle) and drag (paint) interactions.
  */
 @Composable
-private fun AvailabilityGrid(
+fun AvailabilityGrid(
     gridConfig: GridConfig,
     selectedCells: Set<Int>,
     heatmap: Map<Int, Int>,
@@ -724,7 +883,8 @@ private fun AvailabilityGrid(
     visibleCols: List<Int>? = null,
     scrollEnabled: Boolean = true,
     onDragStateChanged: (Boolean) -> Unit = {},
-    selectedFriend: String? = null
+    selectedFriend: String? = null,
+    verticalScrollState: ScrollState = rememberScrollState()
 ) {
     val currentSelectedCells by rememberUpdatedState(selectedCells)
     val currentOnCellPainted by rememberUpdatedState(onCellPainted)
@@ -739,52 +899,59 @@ private fun AvailabilityGrid(
     val headerHeight: Dp = 24.dp
     val horizontalScrollState = rememberScrollState()
     val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
 
     // Columns (days) actually rendered. Cell indices stay in full-grid space so
     // timestamps remain correct even when only a subset of days is shown.
     val colList = visibleCols ?: (0 until gridConfig.cols).toList()
 
-    // BoxWithConstraints is NOT under horizontalScroll, so maxWidth is the real,
-    // finite viewport width. (Previously horizontalScroll wrapped it, handing the
-    // content an unbounded width → cellWidth resolved to Infinity and the whole
-    // grid failed to lay out / was invisible.) From a finite width we can size
-    // each day column to fill the screen when there are few days, or fall back to
-    // a comfortable touch-target width and scroll horizontally when there are many.
+    val gapWidth = 16.dp
+
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val cols = colList.size.coerceAtLeast(1)
         val cellWidth: Dp = maxOf((maxWidth - labelColWidth) / cols, 56.dp)
 
-        Row(modifier = Modifier.fillMaxWidth()) {
-
-            // ── Fixed hour-label column (left edge, does not scroll) ──────────
-            Column(modifier = Modifier.width(labelColWidth)) {
-                Spacer(Modifier.height(headerHeight))
-                gridConfig.hourLabels.forEach { label ->
-                    Box(
-                        modifier = Modifier
-                            .height(cellHeight)
-                            .fillMaxWidth(),
-                        contentAlignment = Alignment.CenterEnd
-                    ) {
-                        Text(
-                            text = label,
-                            fontSize = 9.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(end = 4.dp)
-                        )
-                    }
+        val totalGridWidth = with(density) {
+            var w = cellWidth.toPx() * cols
+            colList.forEachIndexed { index, colIdx ->
+                if (index < colList.size - 1 && colList[index + 1] != colIdx + 1) {
+                    w += gapWidth.toPx()
                 }
             }
+            w.toDp()
+        }
 
-            // ── Scrollable day columns (header + cell matrix) ─────────────────
-            Column(
-                modifier = Modifier
-                    .horizontalScroll(horizontalScrollState, enabled = scrollEnabled)
-                    .width(cellWidth * cols)
-            ) {
-                // Day header row
-                Row(modifier = Modifier.height(headerHeight)) {
-                    colList.forEach { colIdx ->
+        // We need precomputed starting X coordinates for each column to handle tap/drag gesture offsets correctly when gaps are present.
+        val colStartX = remember(colList, cellWidth, density) {
+            with(density) {
+                var currentX = 0f
+                val cellWidthPx = cellWidth.toPx()
+                val gapWidthPx = gapWidth.toPx()
+                FloatArray(colList.size) { index ->
+                    val x = currentX
+                    val colIdx = colList[index]
+                    currentX += cellWidthPx
+                    if (index < colList.size - 1 && colList[index + 1] != colIdx + 1) {
+                        currentX += gapWidthPx
+                    }
+                    x
+                }
+            }
+        }
+
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // 1. Day headers row (Fixed vertically, scrolls horizontally in sync with cells)
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Spacer(modifier = Modifier.width(labelColWidth))
+
+                Row(
+                    modifier = Modifier
+                        .horizontalScroll(horizontalScrollState, enabled = scrollEnabled)
+                        .width(totalGridWidth)
+                        .height(headerHeight),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    colList.forEachIndexed { index, colIdx ->
                         Text(
                             text = gridConfig.dayLabels.getOrElse(colIdx) { "?" },
                             modifier = Modifier.width(cellWidth),
@@ -793,23 +960,64 @@ private fun AvailabilityGrid(
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = 1
                         )
+                        if (index < colList.size - 1 && colList[index + 1] != colIdx + 1) {
+                            Spacer(modifier = Modifier.width(gapWidth))
+                        }
+                    }
+                }
+            }
+
+            // 2. Hour labels column & scrollable cells (scrollable vertically)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(verticalScrollState, enabled = scrollEnabled)
+            ) {
+                // Fixed hour-label column (left edge, scrolls vertically but not horizontally)
+                Column(modifier = Modifier.width(labelColWidth)) {
+                    gridConfig.hourLabels.forEach { label ->
+                        Box(
+                            modifier = Modifier
+                                .height(cellHeight)
+                                .fillMaxWidth(),
+                            contentAlignment = Alignment.CenterEnd
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 9.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
+                        }
                     }
                 }
 
-                // Cell grid with a single unified gesture handler.
+                // Scrollable cells Box
                 Box(
                     modifier = Modifier
-                        .width(cellWidth * cols)
+                        .horizontalScroll(horizontalScrollState, enabled = scrollEnabled)
+                        .width(totalGridWidth)
                         .then(
                             if (readOnly) Modifier
                             else Modifier
-                                .pointerInput(gridConfig, cellWidth, colList, restrictedCells) {
+                                .pointerInput(gridConfig, cellWidth, colList, restrictedCells, colStartX) {
                                     val cellWidthPx = cellWidth.toPx()
                                     val cellHeightPx = cellHeight.toPx()
 
                                     fun cellAt(offset: Offset): Int {
-                                        val visIdx = (offset.x / cellWidthPx)
-                                            .toInt().coerceIn(0, colList.size - 1)
+                                        var visIdx = 0
+                                        for (i in colStartX.indices) {
+                                            if (offset.x >= colStartX[i] && offset.x <= colStartX[i] + cellWidthPx) {
+                                                visIdx = i
+                                                break
+                                            } else if (i < colStartX.size - 1 && offset.x < colStartX[i + 1]) {
+                                                visIdx = i
+                                                break
+                                            } else if (i == colStartX.size - 1) {
+                                                visIdx = i
+                                            }
+                                        }
                                         val col = colList[visIdx]
                                         val row = (offset.y / cellHeightPx)
                                             .toInt().coerceIn(0, gridConfig.rows - 1)
@@ -895,7 +1103,7 @@ private fun AvailabilityGrid(
                     Column {
                         gridConfig.hourLabels.forEachIndexed { rowIdx, _ ->
                             Row(modifier = Modifier.height(cellHeight)) {
-                                colList.forEach { colIdx ->
+                                colList.forEachIndexed { index, colIdx ->
                                     val cellIndex = gridConfig.cellIndex(rowIdx, colIdx)
                                     val isSelected = cellIndex in selectedCells
                                     val isConflicting = cellIndex in conflictingCells
@@ -1015,6 +1223,10 @@ private fun AvailabilityGrid(
                                             )
                                         }
                                     }
+
+                                    if (index < colList.size - 1 && colList[index + 1] != colIdx + 1) {
+                                        Spacer(modifier = Modifier.width(gapWidth))
+                                    }
                                 }
                             }
                         }
@@ -1078,6 +1290,255 @@ private fun LegendRow(
                     color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
                 )
             }
+        }
+    }
+}
+
+@Composable
+fun DragGestureHintOverlay(
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    backgroundAlpha: Float = 0.65f
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "drag_hint")
+    
+    val yOffset by infiniteTransition.animateFloat(
+        initialValue = -40f,
+        targetValue = 60f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 2200
+                -40f at 0
+                -40f at 550
+                60f at 1650
+                60f at 2200
+            },
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "y_offset"
+    )
+    
+    val handScale by infiniteTransition.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 2200
+                1.0f at 0
+                0.82f at 400
+                0.85f at 550
+                0.85f at 1650
+                1.0f at 1850
+                1.0f at 2200
+            },
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "hand_scale"
+    )
+    
+    val touchScale by infiniteTransition.animateFloat(
+        initialValue = 0.0f,
+        targetValue = 0.0f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 2200
+                0.0f at 0
+                1.2f at 400
+                1.0f at 550
+                1.0f at 1650
+                0.0f at 1850
+                0.0f at 2200
+            },
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "touch_scale"
+    )
+    
+    val touchAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.0f,
+        targetValue = 0.0f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 2200
+                0.0f at 0
+                0.7f at 400
+                0.7f at 1650
+                0.0f at 1850
+                0.0f at 2200
+            },
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "touch_alpha"
+    )
+    
+    val handAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.0f,
+        targetValue = 0.0f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 2200
+                0.0f at 0
+                1.0f at 200
+                1.0f at 1650
+                0.0f at 1950
+                0.0f at 2200
+            },
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "hand_alpha"
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.White.copy(alpha = backgroundAlpha))
+            .pointerInput(Unit) {
+                detectTapGestures { onDismiss() }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(100.dp)
+                    .graphicsLayer {
+                        translationY = yOffset.dp.toPx()
+                        alpha = handAlpha
+                        scaleX = handScale
+                        scaleY = handScale
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                // Pointing hand custom canvas drawing
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val width = size.width
+                    val height = size.height
+                    
+                    val centerX = width * 0.37f
+                    val centerY = height * 0.07f
+                    
+                    // Touch point pulse ripple indicator
+                    if (touchAlpha > 0f) {
+                        drawCircle(
+                            color = Color(0xFF6C5CE7).copy(alpha = touchAlpha * 0.3f),
+                            radius = 24.dp.toPx() * touchScale,
+                            center = Offset(centerX, centerY)
+                        )
+                        drawCircle(
+                            color = Color(0xFF6C5CE7).copy(alpha = touchAlpha),
+                            radius = 8.dp.toPx() * touchScale,
+                            center = Offset(centerX, centerY)
+                        )
+                    }
+                    
+                    // Path outline for the pointing hand
+                    val path = Path().apply {
+                        // Start at outer thumb base
+                        moveTo(width * 0.28f, height * 0.78f)
+                        
+                        // Outer thumb edge to thumb tip
+                        quadraticTo(width * 0.12f, height * 0.62f, width * 0.14f, height * 0.44f)
+                        // Thumb tip (goes up more)
+                        quadraticTo(width * 0.14f, height * 0.32f, width * 0.22f, height * 0.38f)
+                        // Crotch between thumb and index
+                        quadraticTo(width * 0.26f, height * 0.54f, width * 0.33f, height * 0.50f)
+                        
+                        // Index left edge
+                        lineTo(width * 0.33f, height * 0.12f)
+                        // Index tip
+                        quadraticTo(width * 0.38f, height * 0.02f, width * 0.43f, height * 0.12f)
+                        // Index right edge
+                        lineTo(width * 0.43f, height * 0.50f)
+                        
+                        // Crease to middle
+                        lineTo(width * 0.45f, height * 0.50f)
+                        // Middle left edge
+                        lineTo(width * 0.45f, height * 0.22f)
+                        // Middle tip
+                        quadraticTo(width * 0.50f, height * 0.12f, width * 0.55f, height * 0.22f)
+                        // Middle right edge
+                        lineTo(width * 0.55f, height * 0.50f)
+                        
+                        // Crease to ring
+                        lineTo(width * 0.57f, height * 0.50f)
+                        // Ring left edge
+                        lineTo(width * 0.57f, height * 0.28f)
+                        // Ring tip
+                        quadraticTo(width * 0.62f, height * 0.18f, width * 0.67f, height * 0.28f)
+                        // Ring right edge
+                        lineTo(width * 0.67f, height * 0.50f)
+                        
+                        // Crease to pinky
+                        lineTo(width * 0.69f, height * 0.50f)
+                        // Pinky left edge
+                        lineTo(width * 0.69f, height * 0.38f)
+                        // Pinky tip
+                        quadraticTo(width * 0.74f, height * 0.28f, width * 0.79f, height * 0.38f)
+                        // Pinky right edge
+                        lineTo(width * 0.79f, height * 0.60f)
+                        
+                        // Palm right outer edge (slopes slightly inwards to the wrist, no bump!)
+                        lineTo(width * 0.76f, height * 0.78f)
+                        
+                        // Smooth U-shaped bottom of palm/wrist back to thumb base
+                        quadraticTo(width * 0.52f, height * 1.05f, width * 0.28f, height * 0.78f)
+                        
+                        close()
+                    }
+                    
+                    // Draw hand shadow (slightly offset to the bottom-right)
+                    drawContext.canvas.save()
+                    drawContext.canvas.translate(3.dp.toPx(), 3.dp.toPx())
+                    drawPath(
+                        path = path,
+                        color = Color.Black.copy(alpha = 0.12f),
+                        style = Fill
+                    )
+                    drawContext.canvas.restore()
+                    
+                    // Draw hand body
+                    drawPath(
+                        path = path,
+                        color = Color.White,
+                        style = Fill
+                    )
+                    
+                    // Draw hand outline
+                    drawPath(
+                        path = path,
+                        color = Color(0xFF6C5CE7),
+                        style = Stroke(
+                            width = 3.dp.toPx(),
+                            cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                            join = androidx.compose.ui.graphics.StrokeJoin.Round
+                        )
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(80.dp))
+            
+            Text(
+                text = "Press & Drag Downwards\nto select multiple slots",
+                color = Color(0xFF333333),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                lineHeight = 22.sp,
+                modifier = Modifier.padding(horizontal = 24.dp)
+            )
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Text(
+                text = "Tap anywhere to start",
+                color = Color(0xFF666666),
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }

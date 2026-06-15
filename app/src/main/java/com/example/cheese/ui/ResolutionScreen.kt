@@ -197,30 +197,28 @@ fun ResolutionScreen(
                 }
             }
 
-            if (dateOnly) {
-                // Select Multiple Days Toggle Row
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Select Multiple Days",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Switch(
-                        checked = selectMultipleDays,
-                        onCheckedChange = {
-                            selectMultipleDays = it
-                            // Reset selection when toggling selection mode to avoid inconsistent states
-                            selectedRange = null
-                        }
-                    )
-                }
+            // Select Multiple Slots Toggle Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (dateOnly) "Select Multiple Days" else "Select Multiple Hours",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Switch(
+                    checked = selectMultipleDays,
+                    onCheckedChange = {
+                        selectMultipleDays = it
+                        // Reset selection when toggling selection mode to avoid inconsistent states
+                        selectedRange = null
+                    }
+                )
             }
 
             // Show Friend Availabilities Toggle Row
@@ -392,37 +390,41 @@ fun ResolutionScreen(
                         eventRequest = eventRequest,
                         verticalScrollState = heatmapScrollState,
                         onCellTapped = { tapped ->
-                            val current = selectedRange
-                            selectedRange = when {
-                                // No selection yet → set the anchor
-                                current == null -> tapped to tapped
+                            if (selectMultipleDays) {
+                                val current = selectedRange
+                                selectedRange = when {
+                                    // No selection yet → set the anchor
+                                    current == null -> tapped to tapped
 
-                                // Tapping the open anchor again → cancel
-                                current.first == current.second && tapped == current.first -> null
+                                    // Tapping the open anchor again → cancel
+                                    current.first == current.second && tapped == current.first -> null
 
-                                // Anchor is open → close the range if the tap is in the
-                                // same column or later; otherwise re-anchor
-                                current.first == current.second -> {
-                                    val anchorCol = current.first % gridConfig.cols
-                                    val tappedCol = tapped % gridConfig.cols
-                                    if (tappedCol >= anchorCol) {
-                                        val minK = minOf(timeKey(current.first), timeKey(tapped))
-                                        val maxK = maxOf(timeKey(current.first), timeKey(tapped))
-                                        val hasGrayCell = (0 until gridConfig.totalCells).any { cellIndex ->
-                                            timeKey(cellIndex) in minK..maxK && (heatmap[cellIndex] ?: 0) == 0
-                                        }
-                                        if (!hasGrayCell) {
-                                            current.first to tapped
+                                    // Anchor is open → close the range if the tap is in the
+                                    // same column or later; otherwise re-anchor
+                                    current.first == current.second -> {
+                                        val anchorCol = current.first % gridConfig.cols
+                                        val tappedCol = tapped % gridConfig.cols
+                                        if (tappedCol >= anchorCol) {
+                                            val minK = minOf(timeKey(current.first), timeKey(tapped))
+                                            val maxK = maxOf(timeKey(current.first), timeKey(tapped))
+                                            val hasGrayCell = (0 until gridConfig.totalCells).any { cellIndex ->
+                                                timeKey(cellIndex) in minK..maxK && (heatmap[cellIndex] ?: 0) == 0
+                                            }
+                                            if (!hasGrayCell) {
+                                                current.first to tapped
+                                            } else {
+                                                tapped to tapped
+                                            }
                                         } else {
                                             tapped to tapped
                                         }
-                                    } else {
-                                        tapped to tapped
                                     }
-                                }
 
-                                // Range already closed → start a new anchor
-                                else -> tapped to tapped
+                                    // Range already closed → start a new anchor
+                                    else -> tapped to tapped
+                                }
+                            } else {
+                                selectedRange = if (selectedRange?.first == tapped) null else tapped to tapped
                             }
                         }
                     )
@@ -795,17 +797,29 @@ private fun FinalSummarySheet(
     onDismiss: () -> Unit
 ) {
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
+    val fullDateFormatter = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
 
     val startCell = selectedRange?.first
     val endCell = selectedRange?.second ?: startCell
 
-    val dayLabel = remember(startCell, endCell, gridConfig) {
+    val dayLabel = remember(startCell, endCell, gridConfig, dateOnly) {
         if (startCell == null) "—"
-        else if (endCell == null || startCell == endCell) gridConfig.cellToDay(startCell)
-        else {
+        else if (endCell == null || startCell == endCell) {
+            fullDateFormatter.format(Date(gridConfig.cellToTimestamp(startCell)))
+        } else if (dateOnly) {
             val minCell = minOf(startCell, endCell)
             val maxCell = maxOf(startCell, endCell)
-            "${gridConfig.cellToDay(minCell)} → ${gridConfig.cellToDay(maxCell)}"
+            val startStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(minCell)))
+            val endStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(maxCell)))
+            if (startStr == endStr) startStr else "$startStr → $endStr"
+        } else {
+            val sCol = startCell % gridConfig.cols
+            val eCol = endCell % gridConfig.cols
+            val minCol = minOf(sCol, eCol)
+            val maxCol = maxOf(sCol, eCol)
+            val startStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(minCol)))
+            val endStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(maxCol)))
+            if (startStr == endStr) startStr else "$startStr → $endStr"
         }
     }
 

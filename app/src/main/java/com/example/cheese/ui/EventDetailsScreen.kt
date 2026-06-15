@@ -81,6 +81,7 @@ fun EventDetailsScreen(
     val totalParticipants = eventRequest.invitees.size
 
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
+    val fullDateFormatter = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
 
     fun timeKey(index: Int): Int =
         (index % gridConfig.cols) * gridConfig.rows + (index / gridConfig.cols)
@@ -90,14 +91,22 @@ fun EventDetailsScreen(
 
     val dayLabel = remember(startCell, endCell, gridConfig, dateOnly) {
         if (startCell == null) "—"
-        else if (endCell == null || startCell == endCell) gridConfig.cellToDay(startCell)
-        else {
+        else if (endCell == null || startCell == endCell) {
+            fullDateFormatter.format(Date(gridConfig.cellToTimestamp(startCell)))
+        } else if (dateOnly) {
+            val minCell = minOf(startCell, endCell)
+            val maxCell = maxOf(startCell, endCell)
+            val startStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(minCell)))
+            val endStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(maxCell)))
+            if (startStr == endStr) startStr else "$startStr → $endStr"
+        } else {
             val sCol = startCell % gridConfig.cols
             val eCol = endCell % gridConfig.cols
             val minCol = minOf(sCol, eCol)
             val maxCol = maxOf(sCol, eCol)
-            if (minCol == maxCol) gridConfig.cellToDay(startCell)
-            else "${gridConfig.dayLabels.getOrElse(minCol) { "?" }} → ${gridConfig.dayLabels.getOrElse(maxCol) { "?" }}"
+            val startStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(minCol)))
+            val endStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(maxCol)))
+            if (startStr == endStr) startStr else "$startStr → $endStr"
         }
     }
 

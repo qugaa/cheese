@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -98,6 +97,7 @@ fun DashboardScreen(
     val currentUser by viewModel.currentUser.collectAsState()
     val dashboardMessage by viewModel.dashboardMessage.collectAsState()
     val friends by viewModel.friends.collectAsState()
+    val notifications by viewModel.notifications.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
 
@@ -135,6 +135,13 @@ fun DashboardScreen(
                 snackbarHostState.showSnackbar(msg)
                 viewModel.clearDashboardMessage()
             }
+        }
+    }
+
+    LaunchedEffect(notifications) {
+        notifications.filter { it.type == "CANCELLED" && !it.read }.forEach { notification ->
+            snackbarHostState.showSnackbar(notification.message)
+            viewModel.markNotificationAsRead(notification.id)
         }
     }
 
@@ -339,7 +346,9 @@ fun DashboardScreen(
                                     items(finalizedEvents, key = { it.request.id }) { eventState ->
                                         FinalizedEventCard(
                                             eventState = eventState,
+                                            hasUnreadNotification = notifications.any { it.eventId == eventState.request.id && !it.read },
                                             onClick = {
+                                                viewModel.markNotificationsForEventAsRead(eventState.request.id)
                                                 viewModel.selectEvent(eventState.request.id)
                                                 onOpenEvent(eventState.request.id)
                                             }
@@ -369,8 +378,10 @@ fun DashboardScreen(
                                         eventState = eventState,
                                         currentUser = currentUser,
                                         isActionNeeded = true,
+                                        hasUnreadNotification = notifications.any { it.eventId == eventState.request.id && !it.read },
                                         onDelete = { viewModel.deleteEvent(eventState.request.id) },
                                         onClick = {
+                                            viewModel.markNotificationsForEventAsRead(eventState.request.id)
                                             viewModel.selectEvent(eventState.request.id)
                                             onOpenEvent(eventState.request.id)
                                         },
@@ -402,8 +413,10 @@ fun DashboardScreen(
                                         eventState = eventState,
                                         currentUser = currentUser,
                                         isActionNeeded = false,
+                                        hasUnreadNotification = notifications.any { it.eventId == eventState.request.id && !it.read },
                                         onDelete = { viewModel.deleteEvent(eventState.request.id) },
                                         onClick = {
+                                            viewModel.markNotificationsForEventAsRead(eventState.request.id)
                                             viewModel.selectEvent(eventState.request.id)
                                             onOpenEvent(eventState.request.id)
                                         },
@@ -772,6 +785,8 @@ fun DashboardScreen(
             }
         }
     }
+
+
 }
 
 @Composable
@@ -855,6 +870,7 @@ private val ConfirmedEventPastelGradients = listOf(
 @Composable
 private fun FinalizedEventCard(
     eventState: EventState,
+    hasUnreadNotification: Boolean = false,
     onClick: () -> Unit
 ) {
     val gradientIndex = remember(eventState.request.id) {
@@ -998,6 +1014,18 @@ private fun FinalizedEventCard(
                 modifier = Modifier.size(12.dp)
             )
         }
+
+        // Red notification dot in the top left
+        if (hasUnreadNotification) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .size(12.dp)
+                    .background(Color.Red, CircleShape)
+                    .border(1.5.dp, Color.White, CircleShape)
+            )
+        }
     }
 }
 
@@ -1007,6 +1035,7 @@ fun EventCard(
     eventState: EventState,
     currentUser: String? = null,
     isActionNeeded: Boolean = false,
+    hasUnreadNotification: Boolean = false,
     onDelete: () -> Unit,
     onClick: () -> Unit,
     onAddParticipant: ((String, (Boolean, String) -> Unit) -> Unit)? = null
@@ -1116,7 +1145,7 @@ fun EventCard(
                             fontSize = 24.sp
                         )
                     }
-                    if (isActionNeeded) {
+                    if (hasUnreadNotification) {
                         Box(
                             modifier = Modifier
                                 .size(12.dp)
@@ -1318,7 +1347,7 @@ fun EventCard(
                                     badgeBg = Color(0xFFECEFF1)
                                     badgeText = Color(0xFF455A64)
                                     badgeLabel = "Waiting"
-                                    badgeIcon = Icons.Default.Notifications
+                                    badgeIcon = Icons.Default.Info
                                 }
                                 eventState.responses[invitee.name]?.availability.isNullOrEmpty() -> {
                                     badgeBg = Color(0xFFFEE2E2)

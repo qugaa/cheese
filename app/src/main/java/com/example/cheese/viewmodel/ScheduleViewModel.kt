@@ -9,10 +9,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import java.text.SimpleDateFormat
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.temporal.TemporalAdjusters
+import java.util.Date
+import java.util.Locale
+import java.util.UUID
 
 class ScheduleViewModel : ViewModel() {
 
@@ -32,8 +36,12 @@ class ScheduleViewModel : ViewModel() {
     private val _events = MutableStateFlow<List<EventState>>(emptyList())
     val events: StateFlow<List<EventState>> = _events.asStateFlow()
 
+    private val _notifications = MutableStateFlow<List<Notification>>(emptyList())
+    val notifications: StateFlow<List<Notification>> = _notifications.asStateFlow()
+
     private var userListener: ListenerRegistration? = null
     private var eventsListener: ListenerRegistration? = null
+    private var notificationsListener: ListenerRegistration? = null
 
     fun login(username: String, onSuccess: () -> Unit) {
         if (username.isBlank()) return
@@ -68,10 +76,12 @@ class ScheduleViewModel : ViewModel() {
     fun logout() {
         userListener?.remove()
         eventsListener?.remove()
+        notificationsListener?.remove()
         _currentUser.value = null
         _friends.value = emptyList()
         _events.value = emptyList()
         _templates.value = emptyList()
+        _notifications.value = emptyList()
     }
 
     private fun setupRealtimeListeners(username: String) {
@@ -107,6 +117,83 @@ class ScheduleViewModel : ViewModel() {
                 }
                 _events.value = fetchedEvents
             }
+
+        notificationsListener?.remove()
+        notificationsListener = db.collection("notifications")
+            .whereEqualTo("recipient", username)
+            .addSnapshotListener { snapshot, e ->
+                if (e != null || snapshot == null) return@addSnapshotListener
+                val fetched = snapshot.documents.mapNotNull { doc ->
+                    doc.toObject(Notification::class.java)
+                }
+                _notifications.value = fetched.sortedByDescending { it.createdAt }
+            }
+    }
+
+    private fun sendNotification(
+        recipient: String,
+        sender: String,
+        type: String,
+        eventId: String,
+        eventName: String,
+        eventEmoji: String,
+        message: String
+    ) {
+        val notification = Notification(
+            recipient = recipient,
+            sender = sender,
+            type = type,
+            eventId = eventId,
+            eventName = eventName,
+            eventEmoji = eventEmoji,
+            message = message,
+            createdAt = System.currentTimeMillis(),
+            read = false
+        )
+        db.collection("notifications").document(notification.id).set(notification)
+    }
+
+    fun markNotificationAsRead(id: String) {
+        db.collection("notifications").document(id).update("read", true)
+    }
+
+    fun markNotificationsForEventAsRead(eventId: String) {
+        val current = _currentUser.value ?: return
+        db.collection("notifications")
+            .whereEqualTo("recipient", current)
+            .whereEqualTo("eventId", eventId)
+            .whereEqualTo("read", false)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                val batch = db.batch()
+                for (doc in snapshot.documents) {
+                    batch.update(doc.reference, "read", true)
+                }
+                batch.commit()
+            }
+    }
+
+    fun clearAllNotifications() {
+        val current = _currentUser.value ?: return
+        db.collection("notifications")
+            .whereEqualTo("recipient", current)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                val batch = db.batch()
+                for (doc in snapshot.documents) {
+                    batch.delete(doc.reference)
+                }
+                batch.commit()
+            }
+    }
+
+    private fun getProposedTimeframeString(request: EventRequest): String {
+        val dateFormatter = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+        return if (request.startDateMillis > 0L && request.endDateMillis > 0L) {
+            "${dateFormatter.format(Date(request.startDateMillis))} → ${dateFormatter.format(Date(request.endDateMillis))}"
+        } else {
+            "Not specified"
+        }
     }
 
     fun addFriend(name: String, onResult: (Boolean, String) -> Unit) {
@@ -278,6 +365,19 @@ class ScheduleViewModel : ViewModel() {
 
         if (isHost) {
             db.collection("events").document(eventId).delete()
+            eventState.request.invitees.forEach { invitee ->
+                if (invitee.name != currentUser) {
+                    sendNotification(
+                        recipient = invitee.name,
+                        sender = currentUser,
+                        type = "CANCELLED",
+                        eventId = eventId,
+                        eventName = eventState.request.eventName,
+                        eventEmoji = eventState.request.eventEmoji,
+                        message = "Host has cancelled ${eventState.request.eventName}"
+                    )
+                }
+            }
         } else {
             val updatedInvitees = eventState.request.invitees.filter { it.name != currentUser }
             val updatedInviteeNames = eventState.request.inviteeNames.filter { it != currentUser }
@@ -332,6 +432,17 @@ class ScheduleViewModel : ViewModel() {
                         val updatedState = eventState.copy(request = updatedRequest)
                         
                         eventRef.set(updatedState).addOnSuccessListener {
+                            val hostName = currentRequest.invitees.firstOrNull()?.name ?: _currentUser.value ?: "Organizer"
+                            val proposedTimeframe = getProposedTimeframeString(currentRequest)
+                            sendNotification(
+                                recipient = trimmed,
+                                sender = hostName,
+                                type = "INVITATION",
+                                eventId = eventId,
+                                eventName = currentRequest.eventName,
+                                eventEmoji = currentRequest.eventEmoji,
+                                message = "$hostName invited you to ${currentRequest.eventName}! Proposed timeframe: $proposedTimeframe"
+                            )
                             onResult(true, "Added $trimmed")
                         }.addOnFailureListener {
                             onResult(false, "Failed to update event in database")
@@ -559,7 +670,59 @@ class ScheduleViewModel : ViewModel() {
             request = request,
             organizerRestrictions = initialRestrictions
         )
-        db.collection("events").document(request.id).set(newState)
+        
+        val docRef = db.collection("events").document(request.id)
+        docRef.get().addOnSuccessListener { document ->
+            val exists = document.exists()
+            docRef.set(newState).addOnSuccessListener {
+                val hostName = request.invitees.firstOrNull()?.name ?: _currentUser.value ?: "Organizer"
+                if (exists) {
+                    val oldState = document.toObject(EventState::class.java)
+                    val oldRequest = oldState?.request
+                    if (oldRequest != null) {
+                        val changed = oldRequest.eventName != request.eventName ||
+                                oldRequest.eventEmoji != request.eventEmoji ||
+                                oldRequest.startDateMillis != request.startDateMillis ||
+                                oldRequest.endDateMillis != request.endDateMillis ||
+                                oldRequest.startHour != request.startHour ||
+                                oldRequest.endHour != request.endHour ||
+                                oldRequest.dateOnlyMode != request.dateOnlyMode ||
+                                oldRequest.selectedDatesList != request.selectedDatesList
+                        
+                        if (changed) {
+                            request.invitees.forEach { invitee ->
+                                if (invitee.name != hostName) {
+                                    sendNotification(
+                                        recipient = invitee.name,
+                                        sender = hostName,
+                                        type = "UPDATED",
+                                        eventId = request.id,
+                                        eventName = request.eventName,
+                                        eventEmoji = request.eventEmoji,
+                                        message = "$hostName has updated the details for ${request.eventName}. Please review your availability."
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    val proposedTimeframe = getProposedTimeframeString(request)
+                    request.invitees.forEach { invitee ->
+                        if (invitee.name != hostName) {
+                            sendNotification(
+                                recipient = invitee.name,
+                                sender = hostName,
+                                type = "INVITATION",
+                                eventId = request.id,
+                                eventName = request.eventName,
+                                eventEmoji = request.eventEmoji,
+                                message = "$hostName invited you to ${request.eventName}! Proposed timeframe: $proposedTimeframe"
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fun finalizeDateOnlyEventRequest() {
@@ -588,7 +751,56 @@ class ScheduleViewModel : ViewModel() {
             responses = responses,
             organizerRestrictions = initialRestrictions
         )
-        db.collection("events").document(request.id).set(newState)
+        
+        val docRef = db.collection("events").document(request.id)
+        docRef.get().addOnSuccessListener { document ->
+            val exists = document.exists()
+            docRef.set(newState).addOnSuccessListener {
+                if (exists) {
+                    val oldState = document.toObject(EventState::class.java)
+                    val oldRequest = oldState?.request
+                    if (oldRequest != null) {
+                        val changed = oldRequest.eventName != request.eventName ||
+                                oldRequest.eventEmoji != request.eventEmoji ||
+                                oldRequest.startDateMillis != request.startDateMillis ||
+                                oldRequest.endDateMillis != request.endDateMillis ||
+                                oldRequest.dateOnlyMode != request.dateOnlyMode ||
+                                oldRequest.selectedDatesList != request.selectedDatesList
+                        
+                        if (changed) {
+                            request.invitees.forEach { invitee ->
+                                if (invitee.name != hostName) {
+                                    sendNotification(
+                                        recipient = invitee.name,
+                                        sender = hostName,
+                                        type = "UPDATED",
+                                        eventId = request.id,
+                                        eventName = request.eventName,
+                                        eventEmoji = request.eventEmoji,
+                                        message = "$hostName has updated the details for ${request.eventName}. Please review your availability."
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    val proposedTimeframe = getProposedTimeframeString(request)
+                    request.invitees.forEach { invitee ->
+                        if (invitee.name != hostName) {
+                            sendNotification(
+                                recipient = invitee.name,
+                                sender = hostName,
+                                type = "INVITATION",
+                                eventId = request.id,
+                                eventName = request.eventName,
+                                eventEmoji = request.eventEmoji,
+                                message = "$hostName invited you to ${request.eventName}! Proposed timeframe: $proposedTimeframe"
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         _selectedDates.value = emptySet()
         _draftAvailability.value = emptySet()
@@ -783,7 +995,25 @@ class ScheduleViewModel : ViewModel() {
             organizerRestrictions = updatedRestrictions,
             finalCellIndex = state?.finalCellIndex
         )
-        db.collection("events").document(eventId).set(newState)
+        db.collection("events").document(eventId).set(newState).addOnSuccessListener {
+            val previouslyAllResponded = request.invitees.isNotEmpty() && request.invitees.all { responses.containsKey(it.name) }
+            val nowAllResponded = request.invitees.isNotEmpty() && request.invitees.all { updatedResponses.containsKey(it.name) }
+            
+            if (!previouslyAllResponded && nowAllResponded) {
+                val hostName = request.invitees.firstOrNull { it.isHost }?.name ?: request.invitees.firstOrNull()?.name
+                if (hostName != null) {
+                    sendNotification(
+                        recipient = hostName,
+                        sender = invitee.name,
+                        type = "RESPONSE_COMPLETE",
+                        eventId = eventId,
+                        eventName = request.eventName,
+                        eventEmoji = request.eventEmoji,
+                        message = "Everyone has responded to ${request.eventName}! The event is now in Action Needed status."
+                    )
+                }
+            }
+        }
     }
 
     fun submitAvailability() {
@@ -857,7 +1087,25 @@ class ScheduleViewModel : ViewModel() {
             finalCellIndex = state?.finalCellIndex,
             organizerRestrictions = updatedRestrictions
         )
-        db.collection("events").document(eventId).set(newState)
+        db.collection("events").document(eventId).set(newState).addOnSuccessListener {
+            val previouslyAllResponded = request.invitees.isNotEmpty() && request.invitees.all { responses.containsKey(it.name) }
+            val nowAllResponded = request.invitees.isNotEmpty() && request.invitees.all { updatedResponses.containsKey(it.name) }
+            
+            if (!previouslyAllResponded && nowAllResponded) {
+                val hostName = request.invitees.firstOrNull { it.isHost }?.name ?: request.invitees.firstOrNull()?.name
+                if (hostName != null) {
+                    sendNotification(
+                        recipient = hostName,
+                        sender = invitee.name,
+                        type = "RESPONSE_COMPLETE",
+                        eventId = eventId,
+                        eventName = request.eventName,
+                        eventEmoji = request.eventEmoji,
+                        message = "Everyone has responded to ${request.eventName}! The event is now in Action Needed status."
+                    )
+                }
+            }
+        }
 
         _selectedDates.value = emptySet()
         _draftAvailability.value = emptySet()
@@ -919,6 +1167,48 @@ class ScheduleViewModel : ViewModel() {
         val eventId = _currentEventId.value ?: return
         val state = _events.value.find { it.request.id == eventId } ?: return
         val newState = state.copy(finalCellIndex = cellIndex, finalCellEndIndex = endCellIndex)
-        db.collection("events").document(eventId).set(newState)
+        db.collection("events").document(eventId).set(newState).addOnSuccessListener {
+            val isDateOnly = state.request.dateOnlyMode
+            val config = if (isDateOnly) {
+                GridConfig(state.request.startDateMillis, state.request.endDateMillis, 0, 1)
+            } else {
+                GridConfig(state.request.startDateMillis, state.request.endDateMillis, state.request.startHour, state.request.endHour)
+            }
+            val dayStr = if (endCellIndex == null || cellIndex == endCellIndex) {
+                config.cellToDay(cellIndex)
+            } else {
+                val sCol = cellIndex % config.cols
+                val eCol = endCellIndex % config.cols
+                val minCol = minOf(sCol, eCol)
+                val maxCol = maxOf(sCol, eCol)
+                if (minCol == maxCol) config.cellToDay(cellIndex)
+                else "${config.dayLabels.getOrElse(minCol) { "?" }} → ${config.dayLabels.getOrElse(maxCol) { "?" }}"
+            }
+            val hourStr = if (isDateOnly) {
+                "all day"
+            } else if (endCellIndex == null || cellIndex == endCellIndex) {
+                config.cellToHour(cellIndex)
+            } else {
+                val sRow = cellIndex / config.cols
+                val eRow = endCellIndex / config.cols
+                val minRow = minOf(sRow, eRow)
+                val maxRow = maxOf(sRow, eRow)
+                "${config.hourLabels.getOrElse(minRow) { "?" }} → ${config.hourLabels.getOrElse(maxRow) { "?" }}"
+            }
+            val timeLabel = if (isDateOnly) "$dayStr ($hourStr)" else "$dayStr, $hourStr"
+            val hostName = state.request.invitees.firstOrNull()?.name ?: _currentUser.value ?: "Organizer"
+            
+            state.request.invitees.forEach { invitee ->
+                sendNotification(
+                    recipient = invitee.name,
+                    sender = hostName,
+                    type = "CONFIRMATION",
+                    eventId = eventId,
+                    eventName = state.request.eventName,
+                    eventEmoji = state.request.eventEmoji,
+                    message = "Event confirmed: ${state.request.eventName} is scheduled for $timeLabel!"
+                )
+            }
+        }
     }
 }

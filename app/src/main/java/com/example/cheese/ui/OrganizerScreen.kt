@@ -507,14 +507,9 @@ fun OrganizerScreen(
                     val selectedDatesList = eventRequest.selectedDatesList
                     if (selectedDatesList.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "Specific Hours",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
                         
                         val draftCells by viewModel.draftAvailability.collectAsState()
+                        val hasSpecificHours = draftCells.isNotEmpty()
                         
                         Card(
                             modifier = Modifier
@@ -523,9 +518,13 @@ fun OrganizerScreen(
                                     showTimePickerDialog = true
                                 },
                             shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+                            border = BorderStroke(
+                                1.dp, 
+                                if (hasSpecificHours) Color(0xFF4CAF50).copy(alpha = 0.5f) 
+                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                            ),
                             colors = CardDefaults.cardColors(
-                                containerColor = Color.Transparent
+                                containerColor = if (hasSpecificHours) Color(0xFFE8F5E9) else Color.Transparent
                             )
                         ) {
                             Row(
@@ -534,26 +533,26 @@ fun OrganizerScreen(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = if (draftCells.isEmpty()) "All-Day" else "You Selected Specific Hours",
+                                        text = if (hasSpecificHours) "Specific hours selected" else "Specific Hours (Optional)",
                                         style = MaterialTheme.typography.bodyLarge,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        color = if (hasSpecificHours) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurface
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = if (draftCells.isEmpty()) {
-                                            "Tap to specify particular hours of the day."
+                                        text = if (hasSpecificHours) {
+                                            "Ready to be sent. Tap to edit."
                                         } else {
-                                            "Tap to edit"
+                                            "Tap to specify particular hours of the day."
                                         },
                                         style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = if (hasSpecificHours) Color(0xFF388E3C) else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                                 Icon(
                                     imageVector = Icons.Default.Edit,
                                     contentDescription = "Edit times",
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = if (hasSpecificHours) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
@@ -674,7 +673,9 @@ fun OrganizerScreen(
                             color = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        var showDragHint by remember { mutableStateOf(true) }
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        val sharedPrefs = remember { context.getSharedPreferences("cheese_prefs", android.content.Context.MODE_PRIVATE) }
+                        var showDragHint by remember { mutableStateOf(sharedPrefs.getBoolean("show_drag_hint", true)) }
                         Text(
                             text = "Paint the hours that work. Participants can only choose within these times.",
                             style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
@@ -710,6 +711,11 @@ fun OrganizerScreen(
                             if (showDragHint) {
                                 DragGestureHintOverlay(
                                     onDismiss = { showDragHint = false },
+                                    onNeverShowAgain = {
+                                        context.getSharedPreferences("cheese_prefs", android.content.Context.MODE_PRIVATE)
+                                            .edit().putBoolean("show_drag_hint", false).apply()
+                                        showDragHint = false
+                                    },
                                     backgroundAlpha = 0.35f
                                 )
                             }

@@ -729,7 +729,9 @@ fun ParticipantScreen(
                     }
                 }
 
-                var showDragHint by rememberSaveable { mutableStateOf(true) }
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val sharedPrefs = remember { context.getSharedPreferences("cheese_prefs", android.content.Context.MODE_PRIVATE) }
+                var showDragHint by rememberSaveable { mutableStateOf(sharedPrefs.getBoolean("show_drag_hint", true)) }
                 val verticalScrollState = rememberScrollState()
 
                 LaunchedEffect(verticalScrollState.maxValue) {
@@ -776,7 +778,12 @@ fun ParticipantScreen(
 
                     if (showDragHint) {
                         DragGestureHintOverlay(
-                            onDismiss = { showDragHint = false }
+                            onDismiss = { showDragHint = false },
+                            onNeverShowAgain = {
+                                context.getSharedPreferences("cheese_prefs", android.content.Context.MODE_PRIVATE)
+                                    .edit().putBoolean("show_drag_hint", false).apply()
+                                showDragHint = false
+                            }
                         )
                     }
                 }
@@ -1297,6 +1304,7 @@ private fun LegendRow(
 @Composable
 fun DragGestureHintOverlay(
     onDismiss: () -> Unit,
+    onNeverShowAgain: () -> Unit,
     modifier: Modifier = Modifier,
     backgroundAlpha: Float = 0.65f
 ) {
@@ -1539,6 +1547,16 @@ fun DragGestureHintOverlay(
                 fontSize = 13.sp,
                 textAlign = TextAlign.Center
             )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            TextButton(onClick = onNeverShowAgain) {
+                Text(
+                    text = "Never show me again",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }

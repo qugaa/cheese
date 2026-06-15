@@ -835,22 +835,23 @@ private fun TemplateCard(template: EventTemplate, onClick: () -> Unit, onDeleteC
             }
         }
 
-        IconButton(
-            onClick = onDeleteClick,
+        Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(4.dp)
-                .size(24.dp)
+                .size(26.dp)
                 .background(
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
                     shape = CircleShape
                 )
+                .clickable { onDeleteClick() },
+            contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = Icons.Default.Close,
                 contentDescription = "Delete Template",
                 tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(14.dp)
+                modifier = Modifier.size(15.dp)
             )
         }
     }
@@ -995,25 +996,7 @@ private fun FinalizedEventCard(
             }
         }
 
-        // Small circular checkmark badge in the top right
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(8.dp)
-                .size(18.dp)
-                .background(
-                    color = Color.White.copy(alpha = 0.8f),
-                    shape = CircleShape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = "Confirmed",
-                tint = Color(0xFF4A4974),
-                modifier = Modifier.size(12.dp)
-            )
-        }
+
 
         // Red notification dot in the top left
         if (hasUnreadNotification) {

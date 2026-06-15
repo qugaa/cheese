@@ -1,19 +1,15 @@
 package com.example.cheese.ui
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -21,68 +17,164 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberSwipeToDismissBoxState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cheese.data.EventState
 import com.example.cheese.data.EventTemplate
 import com.example.cheese.viewmodel.ScheduleViewModel
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.InputChip
-import androidx.compose.material3.FilterChip
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.IconButton
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.example.cheese.ui.theme.CuratedParticipantColors
+import com.example.cheese.data.GridConfig
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
+import kotlin.math.roundToInt
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.format.TextStyle
+import java.util.Locale
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 
-/**
- * Root Landing Destination for the Application.
- * Displays all scheduled plans with their custom emoji and participant count.
- * Includes Swipe-to-Dismiss functionality for deletion and a FAB for new event creation.
- */
+val eventComparator = java.util.Comparator<EventState> { a, b ->
+    val aConfirmed = a.finalCellIndex != null
+    val bConfirmed = b.finalCellIndex != null
+    if (aConfirmed != bConfirmed) {
+        return@Comparator if (aConfirmed) 1 else -1
+    }
+
+    if (!aConfirmed) {
+        val startDiff = a.request.startDateMillis.compareTo(b.request.startDateMillis)
+        if (startDiff != 0) return@Comparator startDiff
+    } else {
+        val aConfig = GridConfig(a.request.startDateMillis, a.request.endDateMillis, a.request.startHour, a.request.endHour)
+        val aTime = aConfig.cellToTimestamp(a.finalCellIndex!!)
+        
+        val bConfig = GridConfig(b.request.startDateMillis, b.request.endDateMillis, b.request.startHour, b.request.endHour)
+        val bTime = bConfig.cellToTimestamp(b.finalCellIndex!!)
+        
+        val timeDiff = aTime.compareTo(bTime)
+        if (timeDiff != 0) return@Comparator timeDiff
+    }
+
+    a.request.eventName.compareTo(b.request.eventName, ignoreCase = true)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     viewModel: ScheduleViewModel,
     onCreateNewEvent: () -> Unit,
-    onQuickCreate: () -> Unit,
-    onOpenEvent: (String) -> Unit
+    onOpenEvent: (String) -> Unit,
+    onFriendClick: (String) -> Unit,
+    onLogout: () -> Unit
 ) {
     val events by viewModel.events.collectAsState()
     val templates by viewModel.templates.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
+    val dashboardMessage by viewModel.dashboardMessage.collectAsState()
+    val friends by viewModel.friends.collectAsState()
+    val notifications by viewModel.notifications.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
+
+    val context = LocalContext.current
+    var showExplanationDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentUser) {
+        currentUser?.let { username ->
+            val prefs = context.getSharedPreferences("cheese_prefs", android.content.Context.MODE_PRIVATE)
+            val hasSeen = prefs.getBoolean("has_seen_explanation_$username", false)
+            if (!hasSeen) {
+                showExplanationDialog = true
+                prefs.edit().putBoolean("has_seen_explanation_$username", true).apply()
+            }
+        }
+    }
+    val tabs = listOf("Events", "Your Calendar", "Friends")
+
+    LaunchedEffect(currentUser) {
+        if (currentUser == null) {
+            onLogout()
+        }
+    }
+
+    var successOverlayMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(dashboardMessage) {
+        dashboardMessage?.let { msg ->
+            if (msg == "Event Confirmed!" || msg == "Event Created!" || msg == "Availabilities Sent!") {
+                successOverlayMessage = msg
+                viewModel.clearDashboardMessage()
+            } else {
+                snackbarHostState.showSnackbar(msg)
+                viewModel.clearDashboardMessage()
+            }
+        }
+    }
+
+    LaunchedEffect(notifications) {
+        notifications.filter { it.type == "CANCELLED" && !it.read }.forEach { notification ->
+            snackbarHostState.showSnackbar(notification.message)
+            viewModel.markNotificationAsRead(notification.id)
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState, modifier = Modifier.imePadding()) },
         topBar = {
             TopAppBar(
-                title = { Text("My Events") },
+                title = { Text(currentUser?.let { "Welcome, $it" } ?: "My Events") },
+                actions = {
+                    IconButton(onClick = { showExplanationDialog = true }) {
+                        Box(
+                            modifier = Modifier
+                                .size(26.dp)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), CircleShape)
+                                .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "?",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                    TextButton(onClick = { viewModel.logout() }) {
+                        Text(
+                            text = "Logout",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
@@ -90,193 +182,962 @@ fun DashboardScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    viewModel.createNewEvent()
-                    onCreateNewEvent()
-                },
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Create New Event")
+            if (selectedTabIndex == 0) {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        viewModel.createNewEvent()
+                        onCreateNewEvent()
+                    },
+                    icon = { Icon(Icons.Default.Add, contentDescription = "Create New Event") },
+                    text = { Text("CREATE EVENT", fontWeight = FontWeight.Bold) },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
             }
         }
     ) { innerPadding ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 80.dp)
+                .padding(innerPadding)
         ) {
-            item {
-                Text(
-                    text = "Quick Create",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
-                )
-                LazyRow(
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+            TabRow(selectedTabIndex = selectedTabIndex) {
+                tabs.forEachIndexed { index, title ->
+                    Tab(
+                        selected = selectedTabIndex == index,
+                        onClick = { selectedTabIndex = index },
+                        text = { Text(title, fontWeight = FontWeight.Bold) }
+                    )
+                }
+            }
+
+            if (selectedTabIndex == 0) {
+                // Events Tab
+                val finalizedEvents = remember(events) {
+                    events.filter { it.finalCellIndex != null }.sortedWith(eventComparator)
+                }
+                val unconfirmedEvents = remember(events) {
+                    events.filter { it.finalCellIndex == null }
+                }
+                val actionNeededEvents = remember(unconfirmedEvents, currentUser) {
+                    unconfirmedEvents.filter { eventState ->
+                        val hostName = eventState.request.invitees.firstOrNull()?.name
+                        val isHost = hostName == currentUser
+                        val hostHasSubmitted = hostName != null && eventState.responses.containsKey(hostName)
+                        val hasSubmitted = eventState.responses.containsKey(currentUser)
+                        val allResponded = eventState.responses.size >= eventState.request.invitees.size && eventState.request.invitees.isNotEmpty()
+                        
+                        if (isHost) {
+                            !hasSubmitted || allResponded
+                        } else {
+                            hostHasSubmitted && !hasSubmitted
+                        }
+                    }.sortedByDescending { it.request.createdAt }
+                }
+                val waitingOnOthersEvents = remember(unconfirmedEvents, currentUser) {
+                    unconfirmedEvents.filter { eventState ->
+                        val hostName = eventState.request.invitees.firstOrNull()?.name
+                        val isHost = hostName == currentUser
+                        val hostHasSubmitted = hostName != null && eventState.responses.containsKey(hostName)
+                        val hasSubmitted = eventState.responses.containsKey(currentUser)
+                        val allResponded = eventState.responses.size >= eventState.request.invitees.size && eventState.request.invitees.isNotEmpty()
+                        
+                        if (isHost) {
+                            hasSubmitted && !allResponded
+                        } else {
+                            !hostHasSubmitted || hasSubmitted
+                        }
+                    }.sortedByDescending { it.request.createdAt }
+                }
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFFF9F9FB)),
+                    contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
-                    items(templates, key = { it.id }) { template ->
-                        TemplateCard(template) {
-                            viewModel.createFromTemplate(template)
-                            onQuickCreate()
+                    item {
+                        if (templates.isNotEmpty()) {
+                            var templateToDelete by remember { mutableStateOf<EventTemplate?>(null) }
+                            
+                            if (templateToDelete != null) {
+                                AlertDialog(
+                                    onDismissRequest = { templateToDelete = null },
+                                    title = { Text("Delete Template") },
+                                    text = { Text("Are you sure you want to delete '${templateToDelete?.name}'?") },
+                                    confirmButton = {
+                                        TextButton(
+                                            onClick = {
+                                                templateToDelete?.let { viewModel.deleteTemplate(it) }
+                                                templateToDelete = null
+                                            }
+                                        ) {
+                                            Text("Delete")
+                                        }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { templateToDelete = null }) {
+                                            Text("Cancel")
+                                        }
+                                    }
+                                )
+                            }
+                            
+                            Text(
+                                text = "Saved Templates",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
+                            )
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(templates, key = { it.id }) { template ->
+                                    TemplateCard(
+                                        template = template,
+                                        onClick = {
+                                            viewModel.createFromTemplate(template)
+                                            onCreateNewEvent()
+                                        },
+                                        onDeleteClick = {
+                                            templateToDelete = template
+                                        }
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(16.dp))
+                            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                            Spacer(Modifier.height(16.dp))
+                        }
+                    }
+
+                    if (events.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 40.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "No events scheduled.\nTap the + button and start planning!",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    } else {
+                        if (finalizedEvents.isNotEmpty()) {
+                            item {
+                                Text(
+                                    text = "Confirmed Events",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 8.dp)
+                                )
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    items(finalizedEvents, key = { it.request.id }) { eventState ->
+                                        FinalizedEventCard(
+                                            eventState = eventState,
+                                            hasUnreadNotification = notifications.any { it.eventId == eventState.request.id && !it.read },
+                                            onClick = {
+                                                viewModel.markNotificationsForEventAsRead(eventState.request.id)
+                                                viewModel.selectEvent(eventState.request.id)
+                                                onOpenEvent(eventState.request.id)
+                                            }
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.height(16.dp))
+                                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                                Spacer(Modifier.height(16.dp))
+                            }
+                        }
+
+                        // ACTION NEEDED Section
+                        if (actionNeededEvents.isNotEmpty()) {
+                            item {
+                                Text(
+                                    text = "ACTION NEEDED",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 8.dp)
+                                )
+                            }
+                            items(actionNeededEvents, key = { it.request.id }) { eventState ->
+                                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                                    EventCard(
+                                        eventState = eventState,
+                                        currentUser = currentUser,
+                                        isActionNeeded = true,
+                                        hasUnreadNotification = notifications.any { it.eventId == eventState.request.id && !it.read },
+                                        onDelete = { viewModel.deleteEvent(eventState.request.id) },
+                                        onClick = {
+                                            viewModel.markNotificationsForEventAsRead(eventState.request.id)
+                                            viewModel.selectEvent(eventState.request.id)
+                                            onOpenEvent(eventState.request.id)
+                                        },
+                                        onAddParticipant = { name, callback ->
+                                            viewModel.addParticipantToExistingEvent(eventState.request.id, name, callback)
+                                        }
+                                    )
+                                }
+                            }
+                            item {
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+                        }
+
+                        // WAITING ON OTHERS Section
+                        if (waitingOnOthersEvents.isNotEmpty()) {
+                            item {
+                                Text(
+                                    text = "WAITING ON OTHERS",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 8.dp)
+                                )
+                            }
+                            items(waitingOnOthersEvents, key = { it.request.id }) { eventState ->
+                                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                                    EventCard(
+                                        eventState = eventState,
+                                        currentUser = currentUser,
+                                        isActionNeeded = false,
+                                        hasUnreadNotification = notifications.any { it.eventId == eventState.request.id && !it.read },
+                                        onDelete = { viewModel.deleteEvent(eventState.request.id) },
+                                        onClick = {
+                                            viewModel.markNotificationsForEventAsRead(eventState.request.id)
+                                            viewModel.selectEvent(eventState.request.id)
+                                            onOpenEvent(eventState.request.id)
+                                        },
+                                        onAddParticipant = { name, callback ->
+                                            viewModel.addParticipantToExistingEvent(eventState.request.id, name, callback)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // If both unconfirmed lists are empty (but there are finalized events)
+                        if (actionNeededEvents.isEmpty() && waitingOnOthersEvents.isEmpty()) {
+                            item {
+                                Text(
+                                    text = "Pending Events",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 8.dp)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 20.dp, bottom = 20.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "No pending events.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-                Spacer(Modifier.height(16.dp))
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = "Upcoming Events",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+            } else if (selectedTabIndex == 1) {
+                // Your Calendar Tab
+                CalendarTab(
+                    events = events,
+                    currentUser = currentUser,
+                    onOpenEvent = { eventId ->
+                        viewModel.selectEvent(eventId)
+                        onOpenEvent(eventId)
+                    },
+                    onDeleteEvent = { eventId ->
+                        viewModel.deleteEvent(eventId)
+                    }
                 )
-            }
+            } else {
+                // Friends Tab
+                var searchQuery by remember { mutableStateOf("") }
+                val haptic = LocalHapticFeedback.current
 
-            if (events.isEmpty()) {
-                item {
-                    Box(
+                // Firestore user search (debounced) + just-added tracking for the + → ✓ flow
+                var dbResults by remember { mutableStateOf<List<String>>(emptyList()) }
+                var searchCompleted by remember { mutableStateOf(false) }
+                var justAdded by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+                LaunchedEffect(searchQuery) {
+                    searchCompleted = false
+                    if (searchQuery.isBlank()) {
+                        dbResults = emptyList()
+                        return@LaunchedEffect
+                    }
+                    delay(300) // debounce while the user is typing
+                    viewModel.searchUsers(searchQuery) { results ->
+                        dbResults = results
+                        searchCompleted = true
+                    }
+                }
+
+                val filteredFriends = friends.filter {
+                    it.name.contains(searchQuery, ignoreCase = true)
+                }
+                val friendNames = friends.map { it.name }.toSet()
+                // Users found in the DB who are not yet friends (and not the current user).
+                // Keep just-added names visible briefly so the ✓ can be shown before the row disappears.
+                val nonFriendResults = dbResults.filter { name ->
+                    name != currentUser && (name !in friendNames || name in justAdded)
+                }
+
+                Column(modifier = Modifier.fillMaxSize()) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 40.dp),
+                            .padding(16.dp),
+                        placeholder = { Text("Search friends...") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true
+                    )
+
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 80.dp)
+                    ) {
+                        items(filteredFriends, key = { it.name }) { friend ->
+                            ListItem(
+                                headlineContent = { Text(friend.name, fontWeight = FontWeight.SemiBold) },
+                                leadingContent = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .background(CuratedParticipantColors[friend.colorIndex], CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = friend.name.firstOrNull()?.uppercase() ?: "?",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.clickable {
+                                    onFriendClick(friend.name)
+                                }
+                            )
+                            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                        }
+
+                        // Users in the DB who are not yet friends
+                        if (searchQuery.isNotBlank() && nonFriendResults.isNotEmpty()) {
+                            item {
+                                Text(
+                                    text = "People on Cheese",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp)
+                                )
+                            }
+                            items(nonFriendResults, key = { "db_$it" }) { name ->
+                                val added = name in justAdded
+                                ListItem(
+                                    headlineContent = { Text(name, fontWeight = FontWeight.SemiBold) },
+                                    leadingContent = {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = name.firstOrNull()?.uppercase() ?: "?",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    },
+                                    trailingContent = {
+                                        if (added) {
+                                            Icon(
+                                                Icons.Default.Check,
+                                                contentDescription = "Added",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        } else {
+                                            IconButton(onClick = {
+                                                viewModel.addFriend(name) { success, msg ->
+                                                    if (success) {
+                                                        justAdded = justAdded + name
+                                                        coroutineScope.launch {
+                                                            // Show the checkmark for a moment, then let the row disappear
+                                                            delay(1200)
+                                                            justAdded = justAdded - name
+                                                        }
+                                                    } else {
+                                                        coroutineScope.launch { snackbarHostState.showSnackbar(msg) }
+                                                    }
+                                                }
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            }) {
+                                                Icon(
+                                                    Icons.Default.Add,
+                                                    contentDescription = "Add $name as friend",
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+                                    }
+                                )
+                                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                            }
+                        }
+
+                        // No user found anywhere
+                        if (searchQuery.isNotBlank() && searchCompleted &&
+                            filteredFriends.isEmpty() && nonFriendResults.isEmpty()
+                        ) {
+                            item {
+                                ListItem(
+                                    headlineContent = {
+                                        Text(
+                                            "No user found",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    },
+                                    leadingContent = {
+                                        Icon(
+                                            Icons.Default.Person,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    val overlayMessage = successOverlayMessage
+    if (overlayMessage != null) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { successOverlayMessage = null }
+        ) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier
+                    .width(280.dp)
+                    .padding(16.dp),
+                tonalElevation = 6.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .background(Color(0xFFE8F5E9), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Success",
+                            tint = Color(0xFF2E7D32),
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Text(
+                        text = overlayMessage,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1B5E20),
+                        textAlign = TextAlign.Center
+                    )
+                    
+                    val subtext = when (overlayMessage) {
+                        "Event Confirmed!" -> "The final date and time have been finalized."
+                        "Event Created!" -> "waiting for response"
+                        "Availabilities Sent!" -> "Thank you for submitting your availability."
+                        else -> ""
+                    }
+                    
+                    if (subtext.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "No events scheduled.\nTap a template or the + button.",
-                            style = MaterialTheme.typography.bodyLarge,
+                            text = subtext,
+                            style = if (overlayMessage == "Event Created!") {
+                                MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
+                            } else {
+                                MaterialTheme.typography.bodyMedium
+                            },
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    }
-                }
-            } else {
-                items(events, key = { it.request.id }) { eventState ->
-                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                        EventCard(
-                            eventState = eventState,
-                            onDelete = { viewModel.deleteEvent(eventState.request.id) },
-                            onClick = {
-                                viewModel.selectEvent(eventState.request.id)
-                                onOpenEvent(eventState.request.id)
-                            }
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
             }
+        }
+        
+        LaunchedEffect(overlayMessage) {
+            delay(2500)
+            successOverlayMessage = null
+        }
+    }
 
-            item {
-                Spacer(Modifier.height(24.dp))
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-                Spacer(Modifier.height(16.dp))
-                FriendsManagementSection(viewModel)
+    if (showExplanationDialog) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showExplanationDialog = false }
+        ) {
+            Surface(
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Header emoji/badge
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .background(
+                                MaterialTheme.colorScheme.primaryContainer,
+                                CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🧀", fontSize = 32.sp)
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Text(
+                        text = "How Cheese Works",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    // Steps
+                    ExplanationStep(
+                        stepNumber = "1",
+                        title = "Create an Event",
+                        description = "Pick proposed dates and invite your friends.",
+                        emoji = "📅"
+                    )
+                    
+                    VerticalArrow()
+                    
+                    ExplanationStep(
+                        stepNumber = "2",
+                        title = "Collect Availabilities",
+                        description = "Wait for your friends to respond with their availabilities.",
+                        emoji = "💬"
+                    )
+                    
+                    VerticalArrow()
+                    
+                    ExplanationStep(
+                        stepNumber = "3",
+                        title = "Finalize & Confirm",
+                        description = "Pick the best time to confirm the event!",
+                        emoji = "🎉"
+                    )
+                    
+                    Spacer(modifier = Modifier.height(28.dp))
+                    
+                    Button(
+                        onClick = { showExplanationDialog = false },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text(
+                            text = "Got it!",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+                }
             }
+        }
+    }
+
+
+}
+
+@Composable
+private fun TemplateCard(template: EventTemplate, onClick: () -> Unit, onDeleteClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .width(140.dp)
+            .height(140.dp)
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable { onClick() },
+            shape = RoundedCornerShape(40.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp).fillMaxSize(),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(MaterialTheme.colorScheme.surface, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = template.emoji, fontSize = 24.sp)
+                }
+                Column {
+                    Text(
+                        text = template.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = 16.sp
+                    )
+                    Text(
+                        text = "${template.invitees.size} invited",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+
+        IconButton(
+            onClick = onDeleteClick,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(4.dp)
+                .size(24.dp)
+                .background(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                    shape = CircleShape
+                )
+        ) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Delete Template",
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(14.dp)
+            )
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+private val ConfirmedEventPastelGradients = listOf(
+    listOf(Color(0xFFE0F7FA), Color(0xFFE0F2F1)), // Minty blue
+    listOf(Color(0xFFFFF3E0), Color(0xFFFFE0B2)), // Peach
+    listOf(Color(0xFFF3E5F5), Color(0xFFE1BEE7)), // Lavender
+    listOf(Color(0xFFE8F5E9), Color(0xFFC8E6C9)), // Sage Green
+    listOf(Color(0xFFECEFF1), Color(0xFFCFD8DC)), // Cool Slate
+    listOf(Color(0xFFFFFDE7), Color(0xFFFFF9C4)), // Pastel Yellow
+    listOf(Color(0xFFFCE4EC), Color(0xFFF8BBD0)), // Soft Pink
+    listOf(Color(0xFFEBF3FC), Color(0xFFD6E4FA)), // Soft Sky Blue
+)
+
 @Composable
-private fun TemplateCard(template: EventTemplate, onClick: () -> Unit) {
-    Card(
+private fun FinalizedEventCard(
+    eventState: EventState,
+    hasUnreadNotification: Boolean = false,
+    onClick: () -> Unit
+) {
+    val gradientIndex = remember(eventState.request.id) {
+        val hash = eventState.request.id.hashCode()
+        kotlin.math.abs(hash) % ConfirmedEventPastelGradients.size
+    }
+    
+    Box(
         modifier = Modifier
             .width(140.dp)
-            .height(140.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-        onClick = onClick
+            .height(140.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp).fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween
+        Card(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable { onClick() },
+            shape = RoundedCornerShape(40.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent)
         ) {
             Box(
                 modifier = Modifier
-                    .size(48.dp)
-                    .background(MaterialTheme.colorScheme.surface, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(text = template.emoji, fontSize = 24.sp)
-            }
-            Column {
-                Text(
-                    text = template.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    maxLines = 1
-                )
-                Text(
-                    text = template.dateOffset.label,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
-                    maxLines = 2
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun EventCard(
-    eventState: EventState,
-    onDelete: () -> Unit,
-    onClick: () -> Unit
-) {
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = {
-            if (it == SwipeToDismissBoxValue.EndToStart || it == SwipeToDismissBoxValue.StartToEnd) {
-                onDelete()
-                true
-            } else {
-                false
-            }
-        }
-    )
-
-    SwipeToDismissBox(
-        state = dismissState,
-        backgroundContent = {
-            val color = MaterialTheme.colorScheme.errorContainer
-            val alignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
-            Box(
-                modifier = Modifier
+                    .background(
+                        Brush.linearGradient(
+                            colors = ConfirmedEventPastelGradients[gradientIndex]
+                        )
+                    )
                     .fillMaxSize()
-                    .background(color, RoundedCornerShape(12.dp))
-                    .padding(horizontal = 20.dp),
-                contentAlignment = alignment
             ) {
-                Icon(
-                    Icons.Default.Delete,
-                    contentDescription = "Delete",
-                    tint = MaterialTheme.colorScheme.onErrorContainer
-                )
-            }
-        },
-        content = {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .animateContentSize(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                onClick = onClick
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
                     // Emoji container
                     Box(
                         modifier = Modifier
+                            .size(40.dp)
+                            .background(Color.White.copy(alpha = 0.6f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = eventState.request.eventEmoji,
+                            fontSize = 20.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Details
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = eventState.request.eventName.ifBlank { "Untitled Event" },
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1E1B4B),
+                            textAlign = TextAlign.Center,
+                            maxLines = 3,
+                            lineHeight = 18.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        
+                        val finalIndex = eventState.finalCellIndex
+                        val finalEndIndex = eventState.finalCellEndIndex
+                        if (finalIndex != null) {
+                            val isDateOnly = eventState.request.dateOnlyMode
+                            val config = if (isDateOnly) {
+                                com.example.cheese.data.GridConfig(
+                                    eventState.request.startDateMillis,
+                                    eventState.request.endDateMillis,
+                                    0,
+                                    1
+                                )
+                            } else {
+                                com.example.cheese.data.GridConfig(
+                                    eventState.request.startDateMillis,
+                                    eventState.request.endDateMillis,
+                                    eventState.request.startHour,
+                                    eventState.request.endHour
+                                )
+                            }
+
+                            val dayStr = if (finalEndIndex == null || finalIndex == finalEndIndex) {
+                                config.cellToDay(finalIndex)
+                            } else {
+                                val sCol = finalIndex % config.cols
+                                val eCol = finalEndIndex % config.cols
+                                val minCol = minOf(sCol, eCol)
+                                val maxCol = maxOf(sCol, eCol)
+                                if (minCol == maxCol) config.cellToDay(finalIndex)
+                                else "${config.dayLabels.getOrElse(minCol) { "?" }} → ${config.dayLabels.getOrElse(maxCol) { "?" }}"
+                            }
+
+                            val hourStr = if (isDateOnly) {
+                                "all day"
+                            } else if (finalEndIndex == null || finalIndex == finalEndIndex) {
+                                config.cellToHour(finalIndex)
+                            } else {
+                                val sRow = finalIndex / config.cols
+                                val eRow = finalEndIndex / config.cols
+                                val minRow = minOf(sRow, eRow)
+                                val maxRow = maxOf(sRow, eRow)
+                                "${config.hourLabels.getOrElse(minRow) { "?" }} → ${config.hourLabels.getOrElse(maxRow) { "?" }}"
+                            }
+
+                            Text(
+                                text = if (isDateOnly) "$dayStr ($hourStr)" else "$dayStr, $hourStr",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF4A4974),
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Small circular checkmark badge in the top right
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp)
+                .size(18.dp)
+                .background(
+                    color = Color.White.copy(alpha = 0.8f),
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = "Confirmed",
+                tint = Color(0xFF4A4974),
+                modifier = Modifier.size(12.dp)
+            )
+        }
+
+        // Red notification dot in the top left
+        if (hasUnreadNotification) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .size(12.dp)
+                    .background(Color.Red, CircleShape)
+                    .border(1.5.dp, Color.White, CircleShape)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EventCard(
+    eventState: EventState,
+    currentUser: String? = null,
+    isActionNeeded: Boolean = false,
+    hasUnreadNotification: Boolean = false,
+    onDelete: () -> Unit,
+    onClick: () -> Unit,
+    onAddParticipant: ((String, (Boolean, String) -> Unit) -> Unit)? = null
+) {
+    val density = LocalDensity.current
+    val maxRevealPx = with(density) { 100.dp.toPx() }
+    val offsetX = remember { androidx.compose.animation.core.Animatable(0f) }
+    val coroutineScope = rememberCoroutineScope()
+    var showInfoDialog by remember { mutableStateOf(false) }
+    val isHost = eventState.request.invitees.firstOrNull()?.name == currentUser
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(androidx.compose.foundation.layout.IntrinsicSize.Min)
+    ) {
+        // Background - Delete Button
+        val color = MaterialTheme.colorScheme.errorContainer
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(color, RoundedCornerShape(32.dp))
+                .clickable {
+                    onDelete()
+                }
+                .padding(horizontal = 20.dp),
+            contentAlignment = Alignment.CenterEnd
+        ) {
+            Icon(
+                Icons.Default.Delete,
+                contentDescription = "Delete",
+                tint = MaterialTheme.colorScheme.onErrorContainer
+            )
+        }
+
+        // Foreground - Event Card
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset { androidx.compose.ui.unit.IntOffset(offsetX.value.roundToInt(), 0) }
+                .then(
+                    if (isActionNeeded) {
+                        Modifier.shadow(
+                            elevation = 6.dp,
+                            shape = RoundedCornerShape(32.dp),
+                            clip = false,
+                            ambientColor = Color(0x40E53935),
+                            spotColor = Color(0x40E53935)
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            coroutineScope.launch {
+                                if (offsetX.value < -maxRevealPx / 2) {
+                                    offsetX.animateTo(-maxRevealPx)
+                                } else {
+                                    offsetX.animateTo(0f)
+                                }
+                            }
+                        },
+                        onDragCancel = {
+                            coroutineScope.launch {
+                                offsetX.animateTo(0f)
+                            }
+                        },
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            coroutineScope.launch {
+                                offsetX.snapTo((offsetX.value + dragAmount).coerceIn(-maxRevealPx * 1.5f, 0f))
+                            }
+                        }
+                    )
+                },
+            shape = RoundedCornerShape(32.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = if (isActionNeeded) {
+                BorderStroke(1.dp, Color(0xFFFFCDD2))
+            } else {
+                BorderStroke(1.dp, Color(0xFFE5E7EB))
+            },
+            onClick = {
+                if (offsetX.value < -10f) {
+                    coroutineScope.launch { offsetX.animateTo(0f) }
+                } else {
+                    onClick()
+                }
+            }
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Emoji container with notification badge if action needed
+                Box {
+                    Box(
+                        modifier = Modifier
                             .size(48.dp)
-                            .background(MaterialTheme.colorScheme.surface, CircleShape),
+                            .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -284,121 +1145,612 @@ private fun EventCard(
                             fontSize = 24.sp
                         )
                     }
+                    if (hasUnreadNotification) {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .align(Alignment.TopEnd)
+                                .offset(x = 2.dp, y = (-2).dp)
+                                .background(Color.Red, CircleShape)
+                                .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                        )
+                    }
+                }
 
-                    Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(16.dp))
 
-                    // Details
-                    Column(modifier = Modifier.weight(1f)) {
+                // Details
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = eventState.request.eventName.uppercase().ifBlank { "UNTITLED EVENT" },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    
+                    val hasSubmitted = eventState.responses.containsKey(currentUser)
+                    val isOrganizerFinalization = isActionNeeded && isHost && hasSubmitted
+
+                    if (isOrganizerFinalization) {
                         Text(
-                            text = eventState.request.eventName.ifBlank { "Untitled Event" },
-                            style = MaterialTheme.typography.titleMedium,
+                            text = "Everyone has voted!",
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Pick final slot",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        )
+                    } else {
                         val responded = eventState.responses.size
                         val total = eventState.request.invitees.size
-                        val finalIndex = eventState.finalCellIndex
-                        
-                        if (finalIndex != null) {
-                            val config = com.example.cheese.data.GridConfig(
-                                eventState.request.startDateMillis,
-                                eventState.request.endDateMillis,
-                                eventState.request.startHour,
-                                eventState.request.endHour
-                            )
-                            val dayStr = config.cellToDay(finalIndex)
-                            val hourStr = config.cellToHour(finalIndex)
+                        Text(
+                            text = "$responded / $total RESPONDED",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        if (isActionNeeded) {
+                            val guidanceText = when {
+                                isHost && !hasSubmitted -> "Set your availability options."
+                                else -> "Choose your availability."
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "$dayStr, $hourStr",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        } else {
-                            Text(
-                                text = "$responded / $total responded",
+                                text = guidanceText,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                             )
+                        }
+                    }
+                }
+
+                // Action / Status tag on the right
+                val hasSubmitted = eventState.responses.containsKey(currentUser)
+                val allResponded = eventState.responses.size >= eventState.request.invitees.size && eventState.request.invitees.isNotEmpty()
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Info Icon Button
+                IconButton(
+                    onClick = { showInfoDialog = true },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = "Event Info",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                if (isActionNeeded) {
+                    val buttonText = if (isHost && hasSubmitted) "FINALIZE" else "RESPOND"
+                    Button(
+                        onClick = onClick,
+                        shape = RoundedCornerShape(20.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF1E3A8A), // Dark Navy Blue
+                            contentColor = Color.White
+                        ),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        modifier = Modifier.height(36.dp)
+                    ) {
+                        Text(
+                            text = buttonText,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
+                    val pillText = if (isHost) "ORGANIZING" else "VOTED"
+                    val pillBgColor = if (isHost) Color(0xFFDCE6FF) else Color(0xFFDCFCE7)
+                    val pillTextColor = if (isHost) Color(0xFF2563EB) else Color(0xFF166534)
+                    
+                    Box(
+                        modifier = Modifier
+                            .background(pillBgColor, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = pillText,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = pillTextColor
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showInfoDialog) {
+        AlertDialog(
+            onDismissRequest = { showInfoDialog = false },
+            title = {
+                Text(
+                    text = "Participants (${eventState.request.invitees.size})",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    eventState.request.invitees.forEach { invitee ->
+                        val isOrganizer = invitee.isHost || (invitee.name == eventState.request.invitees.firstOrNull()?.name)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                // Avatar circle
+                                val avatarColor = CuratedParticipantColors.getOrElse(invitee.colorIndex) { Color.Gray }
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .background(avatarColor, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = invitee.name.firstOrNull()?.uppercase() ?: "?",
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                // Name
+                                val displayName = if (invitee.name == currentUser) "${invitee.name} (You)" else invitee.name
+                                Text(
+                                    text = displayName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            // Status badge
+                            val badgeBg: Color
+                            val badgeText: Color
+                            val badgeLabel: String
+                            val badgeIcon: androidx.compose.ui.graphics.vector.ImageVector?
+
+                            when {
+                                isOrganizer -> {
+                                    badgeBg = Color(0xFFFEF08A)
+                                    badgeText = Color(0xFF854D0E)
+                                    badgeLabel = "Organizer"
+                                    badgeIcon = null
+                                }
+                                !eventState.responses.containsKey(invitee.name) -> {
+                                    badgeBg = Color(0xFFECEFF1)
+                                    badgeText = Color(0xFF455A64)
+                                    badgeLabel = "Waiting"
+                                    badgeIcon = Icons.Default.Info
+                                }
+                                eventState.responses[invitee.name]?.availability.isNullOrEmpty() -> {
+                                    badgeBg = Color(0xFFFEE2E2)
+                                    badgeText = Color(0xFF991B1B)
+                                    badgeLabel = "Not Available"
+                                    badgeIcon = Icons.Default.Close
+                                }
+                                else -> {
+                                    badgeBg = Color(0xFFDCFCE7)
+                                    badgeText = Color(0xFF166534)
+                                    badgeLabel = "Voted"
+                                    badgeIcon = Icons.Default.Check
+                                }
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier
+                                    .background(badgeBg, RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                if (badgeIcon != null) {
+                                    Icon(
+                                        imageVector = badgeIcon,
+                                        contentDescription = badgeLabel,
+                                        tint = badgeText,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                                Text(
+                                    text = badgeLabel,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = badgeText
+                                )
+                            }
+                        }
+                    }
+                    
+                    if (isHost && onAddParticipant != null) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        Text(
+                            text = "Add Participant",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        var newParticipantName by remember { mutableStateOf("") }
+                        var errorMessage by remember { mutableStateOf<String?>(null) }
+                        var successMessage by remember { mutableStateOf<String?>(null) }
+                        var isLoading by remember { mutableStateOf(false) }
+                        
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = newParticipantName,
+                                    onValueChange = { 
+                                        newParticipantName = it
+                                        errorMessage = null
+                                        successMessage = null
+                                    },
+                                    placeholder = { Text("Enter username...") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                    ),
+                                    enabled = !isLoading
+                                )
+                                Button(
+                                    onClick = {
+                                        if (newParticipantName.isNotBlank()) {
+                                            isLoading = true
+                                            onAddParticipant(newParticipantName) { success, msg ->
+                                                isLoading = false
+                                                if (success) {
+                                                    newParticipantName = ""
+                                                    successMessage = msg
+                                                    errorMessage = null
+                                                } else {
+                                                    errorMessage = msg
+                                                    successMessage = null
+                                                }
+                                            }
+                                        }
+                                    },
+                                    enabled = newParticipantName.isNotBlank() && !isLoading,
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    if (isLoading) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                            strokeWidth = 2.dp
+                                        )
+                                    } else {
+                                        Text("Add")
+                                    }
+                                }
+                            }
+                            if (errorMessage != null) {
+                                Text(
+                                    text = errorMessage!!,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(start = 4.dp)
+                                )
+                            }
+                            if (successMessage != null) {
+                                Text(
+                                    text = successMessage!!,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF166534),
+                                    modifier = Modifier.padding(start = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showInfoDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun ExplanationStep(
+    stepNumber: String,
+    title: String,
+    description: String,
+    emoji: String
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(16.dp)
+            )
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .background(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = emoji,
+                fontSize = 20.sp
+            )
+        }
+        
+        Spacer(modifier = Modifier.width(12.dp))
+        
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "$stepNumber. $title",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun VerticalArrow() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .width(2.dp)
+                .height(16.dp)
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+        )
+    }
+}
+
+@Composable
+private fun CalendarTab(
+    events: List<EventState>,
+    currentUser: String?,
+    onOpenEvent: (String) -> Unit,
+    onDeleteEvent: (String) -> Unit
+) {
+    var currentMonth by remember { mutableStateOf(YearMonth.now()) }
+    var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
+    
+    val confirmedEventsByDate = remember(events) {
+        val map = mutableMapOf<LocalDate, MutableList<EventState>>()
+        events.forEach { eventState ->
+            val finalIndex = eventState.finalCellIndex
+            if (finalIndex != null) {
+                val isDateOnly = eventState.request.dateOnlyMode
+                val config = if (isDateOnly) {
+                    GridConfig(eventState.request.startDateMillis, eventState.request.endDateMillis, 0, 1)
+                } else {
+                    GridConfig(eventState.request.startDateMillis, eventState.request.endDateMillis, eventState.request.startHour, eventState.request.endHour)
+                }
+                val timestamp = config.cellToTimestamp(finalIndex)
+                val date = java.time.Instant.ofEpochMilli(timestamp).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+                map.getOrPut(date) { mutableListOf() }.add(eventState)
+            }
+        }
+        map
+    }
+    
+    val daysInMonth = currentMonth.lengthOfMonth()
+    val firstDayOfMonth = currentMonth.atDay(1)
+    val leadingBlanks = firstDayOfMonth.dayOfWeek.value - 1
+    val totalCells = leadingBlanks + daysInMonth
+    val weeks = (totalCells + 6) / 7
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF9F9FB))
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    IconButton(onClick = { currentMonth = currentMonth.minusMonths(1) }) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous Month")
+                    }
+                    Text(
+                        text = "${currentMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault())} ${currentMonth.year}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    IconButton(onClick = { currentMonth = currentMonth.plusMonths(1) }) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next Month")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su").forEach { dayLabel ->
+                        Text(
+                            text = dayLabel,
+                            modifier = Modifier.weight(1f),
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    for (w in 0 until weeks) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            for (d in 0 until 7) {
+                                val cellIdx = w * 7 + d
+                                val dayNum = cellIdx - leadingBlanks + 1
+                                if (dayNum in 1..daysInMonth) {
+                                    val date = currentMonth.atDay(dayNum)
+                                    val dayEvents = confirmedEventsByDate[date] ?: emptyList()
+                                    val isSelected = selectedDate == date
+                                    
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .aspectRatio(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(
+                                                when {
+                                                    isSelected -> MaterialTheme.colorScheme.primaryContainer
+                                                    dayEvents.isNotEmpty() -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
+                                                    else -> Color.Transparent
+                                                }
+                                            )
+                                            .clickable {
+                                                selectedDate = if (isSelected) null else date
+                                            }
+                                            .padding(4.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.SpaceBetween,
+                                            modifier = Modifier.fillMaxSize()
+                                        ) {
+                                            Text(
+                                                text = dayNum.toString(),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = if (dayEvents.isNotEmpty() || isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                            )
+                                            
+                                            if (dayEvents.isNotEmpty()) {
+                                                Row(
+                                                    horizontalArrangement = Arrangement.spacedBy(1.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    dayEvents.take(3).forEach { ev ->
+                                                        Text(
+                                                            text = ev.request.eventEmoji,
+                                                            fontSize = 10.sp
+                                                        )
+                                                    }
+                                                    if (dayEvents.size > 3) {
+                                                        Text(
+                                                            text = "+",
+                                                            fontSize = 8.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                        )
+                                                    }
+                                                }
+                                            } else {
+                                                Spacer(modifier = Modifier.height(10.dp))
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Box(modifier = Modifier.weight(1f).aspectRatio(1f))
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-    )
-}
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun FriendsManagementSection(viewModel: ScheduleViewModel) {
-    val friends by viewModel.friends.collectAsState()
-    val haptic = LocalHapticFeedback.current
-    var newFriendName by remember { mutableStateOf("") }
-    
-    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-        Text(
-            text = "Saved Friends",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
-        
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            friends.forEach { friend ->
-                InputChip(
-                    selected = true,
-                    onClick = { },
-                    label = { Text(friend.name) },
-                    leadingIcon = {
-                        Box(
-                            modifier = Modifier
-                                .size(12.dp)
-                                .background(CuratedParticipantColors[friend.colorIndex], CircleShape)
-                        )
-                    },
-                    trailingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Remove",
-                            modifier = Modifier.clickable {
-                                viewModel.removeFriend(friend.name)
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        selectedDate?.let { date ->
+            val dayEvents = confirmedEventsByDate[date] ?: emptyList()
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Confirmed Events - ${date.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())}, ${date.month.getDisplayName(java.time.format.TextStyle.SHORT, Locale.getDefault())} ${date.dayOfMonth}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                
+                if (dayEvents.isEmpty()) {
+                    Text(
+                        text = "No events scheduled for this day.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    dayEvents.forEach { eventState ->
+                        EventCard(
+                            eventState = eventState,
+                            currentUser = currentUser,
+                            isActionNeeded = false,
+                            onDelete = { onDeleteEvent(eventState.request.id) },
+                            onClick = {
+                                onOpenEvent(eventState.request.id)
                             }
                         )
                     }
-                )
-            }
-        }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = newFriendName,
-                onValueChange = { newFriendName = it },
-                placeholder = { Text("Add a friend...") },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp)
-            )
-            Spacer(Modifier.width(8.dp))
-            IconButton(
-                onClick = {
-                    if (newFriendName.isNotBlank()) {
-                        viewModel.addFriend(newFriendName, CuratedParticipantColors.indices.random())
-                        newFriendName = ""
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    }
-                },
-                colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.primary)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add Friend", tint = MaterialTheme.colorScheme.onPrimary)
+                }
             }
         }
     }

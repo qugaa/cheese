@@ -11,11 +11,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.cheese.ui.DashboardScreen
 import com.example.cheese.ui.EventDetailsScreen
+import com.example.cheese.ui.LoginScreen
 import com.example.cheese.ui.OrganizerScreen
 import com.example.cheese.ui.ParticipantScreen
+import com.example.cheese.ui.FriendDetailsScreen
 import com.example.cheese.ui.ResolutionScreen
 import com.example.cheese.ui.SplashScreen
-import com.example.cheese.ui.QuickCreateScreen
 import com.example.cheese.ui.theme.CheeseTheme
 import com.example.cheese.viewmodel.ScheduleViewModel
 
@@ -55,8 +56,26 @@ fun CheeseApp() {
         composable("splash") {
             SplashScreen(
                 onTimeout = {
+                    if (scheduleViewModel.currentUser.value == null) {
+                        navController.navigate("login") {
+                            popUpTo("splash") { inclusive = true }
+                        }
+                    } else {
+                        navController.navigate("dashboard") {
+                            popUpTo("splash") { inclusive = true }
+                        }
+                    }
+                }
+            )
+        }
+
+        // ── Login ────────────────────────────────────────────────────────────
+        composable("login") {
+            LoginScreen(
+                viewModel = scheduleViewModel,
+                onLoginSuccess = {
                     navController.navigate("dashboard") {
-                        popUpTo("splash") { inclusive = true }
+                        popUpTo("login") { inclusive = true }
                     }
                 }
             )
@@ -69,42 +88,65 @@ fun CheeseApp() {
                 onCreateNewEvent = {
                     navController.navigate("organizer")
                 },
-                onQuickCreate = {
-                    navController.navigate("quick_create")
-                },
                 onOpenEvent = { eventId ->
                     val state = scheduleViewModel.events.value.find { it.request.id == eventId }
                     if (state != null) {
                         scheduleViewModel.selectEvent(eventId)
+                        val currentUser = scheduleViewModel.currentUser.value
+                        val isHost = state.request.invitees.firstOrNull()?.name == currentUser
+                        val hasSubmitted = state.responses.containsKey(currentUser)
+
                         val isFinalized = state.finalCellIndex != null
                         val isComplete = state.responses.size >= state.request.invitees.size && state.request.invitees.isNotEmpty()
                         
                         if (isFinalized) {
                             navController.navigate("event_details")
-                        } else if (isComplete) {
+                        } else if (!hasSubmitted) {
+                            navController.navigate("participant")
+                        } else if (isHost) {
                             navController.navigate("resolution")
                         } else {
+                            // If not host and already submitted, they can just look at their response in ParticipantScreen
                             navController.navigate("participant")
                         }
+                    }
+                },
+                onFriendClick = { friendName ->
+                    navController.navigate("friend_details/$friendName")
+                },
+                onLogout = {
+                    navController.navigate("login") {
+                        popUpTo("dashboard") { inclusive = true }
                     }
                 }
             )
         }
 
-        // ── Quick Create Flow ─────────────────────────────────────────────────
-        composable("quick_create") {
-            QuickCreateScreen(
+        // ── Friend Details ────────────────────────────────────────────────────
+        composable("friend_details/{friendName}") { backStackEntry ->
+            val friendName = backStackEntry.arguments?.getString("friendName") ?: return@composable
+            FriendDetailsScreen(
+                friendName = friendName,
                 viewModel = scheduleViewModel,
-                onProceed = {
-                    scheduleViewModel.finalizeEventRequest()
-                    navController.navigate("participant")
-                },
-                onAdvancedSetup = {
-                    navController.navigate("organizer")
-                },
-                onBack = {
-                    navController.navigate("dashboard") {
-                        popUpTo("dashboard") { inclusive = true }
+                onBack = { navController.popBackStack() },
+                onOpenEvent = { eventId ->
+                    val state = scheduleViewModel.events.value.find { it.request.id == eventId }
+                    if (state != null) {
+                        scheduleViewModel.selectEvent(eventId)
+                        val currentUser = scheduleViewModel.currentUser.value
+                        val isHost = state.request.invitees.firstOrNull()?.name == currentUser
+                        val hasSubmitted = state.responses.containsKey(currentUser)
+                        val isFinalized = state.finalCellIndex != null
+                        
+                        if (isFinalized) {
+                            navController.navigate("event_details")
+                        } else if (!hasSubmitted) {
+                            navController.navigate("participant")
+                        } else if (isHost) {
+                            navController.navigate("resolution")
+                        } else {
+                            navController.navigate("participant")
+                        }
                     }
                 }
             )
@@ -115,9 +157,12 @@ fun CheeseApp() {
             OrganizerScreen(
                 viewModel = scheduleViewModel,
                 onRequestSent = {
-                    scheduleViewModel.finalizeEventRequest()
-                    navController.navigate("participant")
-                }
+                    scheduleViewModel.setDashboardMessage("Event Created!")
+                    navController.navigate("dashboard") {
+                        popUpTo("dashboard") { inclusive = true }
+                    }
+                },
+                onBack = { navController.navigateUp() }
             )
         }
 
@@ -125,28 +170,25 @@ fun CheeseApp() {
         composable("participant") {
             ParticipantScreen(
                 viewModel = scheduleViewModel,
-                onSubmitted = { isLastParticipant ->
-                    if (isLastParticipant) {
-                        navController.navigate("resolution") {
-                            popUpTo("participant") { inclusive = true }
-                        }
+                onSubmitted = { dashboardMsg ->
+                    if (dashboardMsg != null) {
+                        scheduleViewModel.setDashboardMessage(dashboardMsg)
+                    }
+                    navController.navigate("dashboard") {
+                        popUpTo("dashboard") { inclusive = true }
                     }
                 },
                 onEditEvent = {
                     val currentId = scheduleViewModel.currentEventId.value
                     if (currentId != null) {
                         scheduleViewModel.saveCurrentDraft()
-                        scheduleViewModel.editEvent(currentId)
-                        navController.navigate("organizer") {
-                            popUpTo("dashboard")
+                        navController.navigate("dashboard") {
+                            popUpTo("dashboard") { inclusive = true }
                         }
                     }
                 },
-                onBackToDashboard = {
-                    scheduleViewModel.saveCurrentDraft()
-                    navController.navigate("dashboard") {
-                        popUpTo("dashboard") { inclusive = true }
-                    }
+                onBack = {
+                    navController.navigateUp()
                 }
             )
         }
@@ -158,15 +200,15 @@ fun CheeseApp() {
                 onEditEvent = {
                     val currentId = scheduleViewModel.currentEventId.value
                     if (currentId != null) {
-                        scheduleViewModel.editEvent(currentId)
                         navController.navigate("organizer") {
                             popUpTo("dashboard")
                         }
                     }
                 },
                 onConfirm = {
-                    navController.navigate("event_details") {
-                        popUpTo("dashboard")
+                    scheduleViewModel.setDashboardMessage("Event Confirmed!")
+                    navController.navigate("dashboard") {
+                        popUpTo("dashboard") { inclusive = true }
                     }
                 },
                 onBack = {

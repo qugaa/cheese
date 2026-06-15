@@ -17,7 +17,7 @@ data class EventTemplate(
     val id: String = UUID.randomUUID().toString(),
     val emoji: String,
     val name: String,
-    val dateOffset: DateOffset
+    val invitees: List<String> = emptyList()
 )
 
 data class Friend(
@@ -34,8 +34,8 @@ data class Friend(
  * @property isHost      True if this participant is the event organizer (host).
  */
 data class Invitee(
-    val name: String,
-    val colorIndex: Int,
+    val name: String = "",
+    val colorIndex: Int = 0,
     val isHost: Boolean = false
 )
 
@@ -48,6 +48,9 @@ data class Invitee(
  * @property startDateMillis Epoch millis for the first eligible day.
  * @property endDateMillis   Epoch millis for the last eligible day.
  * @property invitees        Ordered list of participants (with assigned colors/roles).
+ * @property dateOnlyMode    When true (e.g. multi-day trips), participants pick
+ *                           whole dates instead of hourly time slots, and the
+ *                           final selection is a date rather than a time slot.
  */
 data class EventRequest(
     val id: String = UUID.randomUUID().toString(),
@@ -55,9 +58,13 @@ data class EventRequest(
     val eventName: String = "",
     val startDateMillis: Long = 0L,
     val endDateMillis: Long = 0L,
-    val startHour: Int = 8,
-    val endHour: Int = 22,
-    val invitees: List<Invitee> = emptyList()
+    val startHour: Int = 0,
+    val endHour: Int = 24,
+    val invitees: List<Invitee> = emptyList(),
+    val inviteeNames: List<String> = emptyList(),
+    val dateOnlyMode: Boolean = false,
+    val selectedDatesList: List<Long> = emptyList(),
+    val createdAt: Long = 0L
 )
 
 /**
@@ -68,8 +75,8 @@ data class EventRequest(
  * the selections stay anchored to their real-world times.
  */
 data class ParticipantResponse(
-    val participantName: String,
-    val availability: Set<Long> = emptySet()
+    val participantName: String = "",
+    val availability: List<Long> = emptyList()
 )
 
 /**
@@ -77,10 +84,11 @@ data class ParticipantResponse(
  * and the aggregated responses from participants.
  */
 data class EventState(
-    val request: EventRequest,
+    val request: EventRequest = EventRequest(),
     val responses: Map<String, ParticipantResponse> = emptyMap(),
     val finalCellIndex: Int? = null,
-    val organizerRestrictions: Set<Long> = emptySet()
+    val finalCellEndIndex: Int? = null,
+    val organizerRestrictions: List<Long> = emptyList()
 )
 
 /**
@@ -90,8 +98,8 @@ data class EventState(
 data class GridConfig(
     val startDateMillis: Long, 
     val endDateMillis: Long,
-    val startHour: Int = 8,
-    val endHour: Int = 22
+    val startHour: Int = 0,
+    val endHour: Int = 24
 ) {
     /** Time slots: one row per hour. */
     val rows: Int = (endHour - startHour).coerceAtLeast(1)

@@ -4,6 +4,8 @@
 
 A high-fidelity native Android prototype built with Jetpack Compose and Material 3, designed and evaluated strictly on HCI methodologies and Cognitive Ergonomics principles.
 
+[**⬇ Download APK (v0.1.0-alpha)**](https://github.com/qugaa/cheese/releases/download/v0.1.0-alpha/cheese-v0.1.0-alpha.apk)
+
 ---
 
 ## Concept

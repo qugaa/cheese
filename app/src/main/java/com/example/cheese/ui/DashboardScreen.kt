@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
@@ -40,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cheese.data.EventState
 import com.example.cheese.data.EventTemplate
+import com.example.cheese.data.isPastEvent
 import com.example.cheese.viewmodel.ScheduleViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -101,7 +103,7 @@ fun DashboardScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
 
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
 
     val context = LocalContext.current
     var showExplanationDialog by remember { mutableStateOf(false) }
@@ -213,11 +215,13 @@ fun DashboardScreen(
 
             if (selectedTabIndex == 0) {
                 // Events Tab
-                val finalizedEvents = remember(events) {
-                    events.filter { it.finalCellIndex != null }.sortedWith(eventComparator)
+                val activeEvents = remember(events) { events.filter { !it.isPastEvent() } }
+                
+                val finalizedEvents = remember(activeEvents) {
+                    activeEvents.filter { it.finalCellIndex != null }.sortedWith(eventComparator)
                 }
-                val unconfirmedEvents = remember(events) {
-                    events.filter { it.finalCellIndex == null }
+                val unconfirmedEvents = remember(activeEvents) {
+                    activeEvents.filter { it.finalCellIndex == null }
                 }
                 val actionNeededEvents = remember(unconfirmedEvents, currentUser) {
                     unconfirmedEvents.filter { eventState ->
@@ -1021,7 +1025,8 @@ fun EventCard(
     hasUnreadNotification: Boolean = false,
     onDelete: () -> Unit,
     onClick: () -> Unit,
-    onAddParticipant: ((String, (Boolean, String) -> Unit) -> Unit)? = null
+    onAddParticipant: ((String, (Boolean, String) -> Unit) -> Unit)? = null,
+    isPastEvent: Boolean = false
 ) {
     val density = LocalDensity.current
     val maxRevealPx = with(density) { 100.dp.toPx() }
@@ -1232,7 +1237,7 @@ fun EventCard(
                             fontWeight = FontWeight.Bold
                         )
                     }
-                } else {
+                } else if (!isPastEvent) {
                     val pillText = if (isHost) "ORGANIZING" else "VOTED"
                     val pillBgColor = if (isHost) Color(0xFFDCE6FF) else Color(0xFFDCFCE7)
                     val pillTextColor = if (isHost) Color(0xFF2563EB) else Color(0xFF166534)
@@ -1542,7 +1547,8 @@ private fun CalendarTab(
     onDeleteEvent: (String) -> Unit
 ) {
     var currentMonth by remember { mutableStateOf(YearMonth.now()) }
-    var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
+    var selectedDateEpochDay by rememberSaveable { mutableStateOf<Long?>(null) }
+    val selectedDate = remember(selectedDateEpochDay) { selectedDateEpochDay?.let { java.time.LocalDate.ofEpochDay(it) } }
     
     val confirmedEventsByDate = remember(events) {
         val map = mutableMapOf<LocalDate, MutableList<EventState>>()
@@ -1664,7 +1670,7 @@ private fun CalendarTab(
                                                 }
                                             )
                                             .clickable {
-                                                selectedDate = if (isSelected) null else date
+                                                selectedDateEpochDay = if (isSelected) null else date.toEpochDay()
                                             }
                                             .padding(4.dp),
                                         contentAlignment = Alignment.Center
@@ -1748,6 +1754,34 @@ private fun CalendarTab(
                             }
                         )
                     }
+                }
+            }
+        }
+
+        val pastEvents = remember(events) { events.filter { it.isPastEvent() }.sortedByDescending { it.request.endDateMillis } }
+        if (pastEvents.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Past Events",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                pastEvents.forEach { eventState ->
+                    EventCard(
+                        eventState = eventState,
+                        currentUser = currentUser,
+                        isActionNeeded = false,
+                        onDelete = { onDeleteEvent(eventState.request.id) },
+                        onClick = { onOpenEvent(eventState.request.id) },
+                        isPastEvent = true
+                    )
                 }
             }
         }

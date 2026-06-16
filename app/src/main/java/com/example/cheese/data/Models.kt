@@ -163,6 +163,39 @@ data class GridConfig(
     }
 }
 
+fun EventState.isPastEvent(currentTimeMillis: Long = System.currentTimeMillis()): Boolean {
+    val finalIndex = finalCellIndex ?: return false
+    val finalEndIndex = finalCellEndIndex ?: finalIndex
+
+    val isDateOnly = request.dateOnlyMode
+    val config = if (isDateOnly) {
+        GridConfig(
+            startDateMillis = request.startDateMillis,
+            endDateMillis = request.endDateMillis,
+            startHour = 0,
+            endHour = 1
+        )
+    } else {
+        GridConfig(
+            startDateMillis = request.startDateMillis,
+            endDateMillis = request.endDateMillis,
+            startHour = request.startHour,
+            endHour = request.endHour
+        )
+    }
+
+    val maxIdx = maxOf(finalIndex, finalEndIndex)
+    val endTimestamp = config.cellToTimestamp(maxIdx)
+
+    val endOfEventMillis = if (isDateOnly) {
+        endTimestamp + 24L * 60 * 60 * 1000L
+    } else {
+        endTimestamp + 60L * 60 * 1000L
+    }
+
+    return currentTimeMillis > endOfEventMillis + 24L * 60 * 60 * 1000L
+}
+
 fun EventState.getFinalTimestamps(): List<Long> {
     val startCell = finalCellIndex ?: return emptyList()
     val endCell = finalCellEndIndex ?: startCell

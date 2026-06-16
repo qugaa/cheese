@@ -212,9 +212,7 @@ fun CheeseApp() {
                     }
                 },
                 onBack = {
-                    navController.navigate("dashboard") {
-                        popUpTo("dashboard") { inclusive = true }
-                    }
+                    navController.popBackStack()
                 }
             )
         }
@@ -227,9 +225,7 @@ fun CheeseApp() {
                     navController.navigate("resolution")
                 },
                 onBack = {
-                    navController.navigate("dashboard") {
-                        popUpTo("dashboard") { inclusive = true }
-                    }
+                    navController.popBackStack()
                 }
             )
         }

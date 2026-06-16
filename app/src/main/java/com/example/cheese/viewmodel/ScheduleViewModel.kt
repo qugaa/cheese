@@ -1209,26 +1209,25 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
             } else {
                 GridConfig(state.request.startDateMillis, state.request.endDateMillis, state.request.startHour, state.request.endHour)
             }
+            val firstCell = if (endCellIndex == null || config.cellToTimestamp(cellIndex) <= config.cellToTimestamp(endCellIndex)) cellIndex else endCellIndex
+            val lastCell = if (endCellIndex == null || config.cellToTimestamp(cellIndex) <= config.cellToTimestamp(endCellIndex)) endCellIndex else cellIndex
+
             val dayStr = if (endCellIndex == null || cellIndex == endCellIndex) {
                 config.cellToDay(cellIndex)
             } else {
-                val sCol = cellIndex % config.cols
-                val eCol = endCellIndex % config.cols
-                val minCol = minOf(sCol, eCol)
-                val maxCol = maxOf(sCol, eCol)
-                if (minCol == maxCol) config.cellToDay(cellIndex)
-                else "${config.dayLabels.getOrElse(minCol) { "?" }} → ${config.dayLabels.getOrElse(maxCol) { "?" }}"
+                val sCol = firstCell % config.cols
+                val eCol = lastCell % config.cols
+                if (sCol == eCol) config.cellToDay(firstCell)
+                else "${config.dayLabels.getOrElse(sCol) { "?" }} → ${config.dayLabels.getOrElse(eCol) { "?" }}"
             }
             val hourStr = if (isDateOnly) {
                 "all day"
             } else if (endCellIndex == null || cellIndex == endCellIndex) {
                 config.cellToHour(cellIndex)
             } else {
-                val sRow = cellIndex / config.cols
-                val eRow = endCellIndex / config.cols
-                val minRow = minOf(sRow, eRow)
-                val maxRow = maxOf(sRow, eRow)
-                "${config.hourLabels.getOrElse(minRow) { "?" }} → ${config.hourLabels.getOrElse(maxRow) { "?" }}"
+                val sRow = firstCell / config.cols
+                val eRow = lastCell / config.cols
+                "${config.hourLabels.getOrElse(sRow) { "?" }} → ${config.hourLabels.getOrElse(eRow) { "?" }}"
             }
             val timeLabel = if (isDateOnly) "$dayStr ($hourStr)" else "$dayStr, $hourStr"
             val hostName = state.request.invitees.firstOrNull()?.name ?: _currentUser.value ?: "Organizer"

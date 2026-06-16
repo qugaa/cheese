@@ -184,8 +184,9 @@ fun EventState.isPastEvent(currentTimeMillis: Long = System.currentTimeMillis())
         )
     }
 
-    val maxIdx = maxOf(finalIndex, finalEndIndex)
-    val endTimestamp = config.cellToTimestamp(maxIdx)
+    val startTs = config.cellToTimestamp(finalIndex)
+    val endTs = config.cellToTimestamp(finalEndIndex)
+    val endTimestamp = maxOf(startTs, endTs)
 
     val endOfEventMillis = if (isDateOnly) {
         endTimestamp + 24L * 60 * 60 * 1000L

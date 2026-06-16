@@ -962,15 +962,16 @@ private fun FinalizedEventCard(
                                 )
                             }
 
+                            val firstCell = if (finalEndIndex == null || config.cellToTimestamp(finalIndex) <= config.cellToTimestamp(finalEndIndex)) finalIndex else finalEndIndex
+                            val lastCell = if (finalEndIndex == null || config.cellToTimestamp(finalIndex) <= config.cellToTimestamp(finalEndIndex)) finalEndIndex else finalIndex
+
                             val dayStr = if (finalEndIndex == null || finalIndex == finalEndIndex) {
                                 config.cellToDay(finalIndex)
                             } else {
-                                val sCol = finalIndex % config.cols
-                                val eCol = finalEndIndex % config.cols
-                                val minCol = minOf(sCol, eCol)
-                                val maxCol = maxOf(sCol, eCol)
-                                if (minCol == maxCol) config.cellToDay(finalIndex)
-                                else "${config.dayLabels.getOrElse(minCol) { "?" }} → ${config.dayLabels.getOrElse(maxCol) { "?" }}"
+                                val sCol = firstCell % config.cols
+                                val eCol = lastCell % config.cols
+                                if (sCol == eCol) config.cellToDay(firstCell)
+                                else "${config.dayLabels.getOrElse(sCol) { "?" }} → ${config.dayLabels.getOrElse(eCol) { "?" }}"
                             }
 
                             val hourStr = if (isDateOnly) {
@@ -978,11 +979,9 @@ private fun FinalizedEventCard(
                             } else if (finalEndIndex == null || finalIndex == finalEndIndex) {
                                 config.cellToHour(finalIndex)
                             } else {
-                                val sRow = finalIndex / config.cols
-                                val eRow = finalEndIndex / config.cols
-                                val minRow = minOf(sRow, eRow)
-                                val maxRow = maxOf(sRow, eRow)
-                                "${config.hourLabels.getOrElse(minRow) { "?" }} → ${config.hourLabels.getOrElse(maxRow) { "?" }}"
+                                val sRow = firstCell / config.cols
+                                val eRow = lastCell / config.cols
+                                "${config.hourLabels.getOrElse(sRow) { "?" }} → ${config.hourLabels.getOrElse(eRow) { "?" }}"
                             }
 
                             Text(

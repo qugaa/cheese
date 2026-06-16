@@ -41,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -66,6 +67,8 @@ fun EventDetailsScreen(
     val finalCellIndex = eventState?.finalCellIndex
     val finalCellEndIndex = eventState?.finalCellEndIndex
     val dateOnly = eventRequest.dateOnlyMode
+    val currentUser by viewModel.currentUser.collectAsState()
+    val isHost = eventRequest.invitees.firstOrNull()?.name == currentUser
     
     val gridConfig = remember(eventRequest.startDateMillis, eventRequest.endDateMillis, eventRequest.startHour, eventRequest.endHour, dateOnly) {
         if (dateOnly) {
@@ -78,6 +81,7 @@ fun EventDetailsScreen(
     val totalParticipants = eventRequest.invitees.size
 
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
+    val fullDateFormatter = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
 
     fun timeKey(index: Int): Int =
         (index % gridConfig.cols) * gridConfig.rows + (index / gridConfig.cols)
@@ -87,14 +91,22 @@ fun EventDetailsScreen(
 
     val dayLabel = remember(startCell, endCell, gridConfig, dateOnly) {
         if (startCell == null) "—"
-        else if (endCell == null || startCell == endCell) gridConfig.cellToDay(startCell)
-        else {
+        else if (endCell == null || startCell == endCell) {
+            fullDateFormatter.format(Date(gridConfig.cellToTimestamp(startCell)))
+        } else if (dateOnly) {
+            val minCell = minOf(startCell, endCell)
+            val maxCell = maxOf(startCell, endCell)
+            val startStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(minCell)))
+            val endStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(maxCell)))
+            if (startStr == endStr) startStr else "$startStr → $endStr"
+        } else {
             val sCol = startCell % gridConfig.cols
             val eCol = endCell % gridConfig.cols
             val minCol = minOf(sCol, eCol)
             val maxCol = maxOf(sCol, eCol)
-            if (minCol == maxCol) gridConfig.cellToDay(startCell)
-            else "${gridConfig.dayLabels.getOrElse(minCol) { "?" }} → ${gridConfig.dayLabels.getOrElse(maxCol) { "?" }}"
+            val startStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(minCol)))
+            val endStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(maxCol)))
+            if (startStr == endStr) startStr else "$startStr → $endStr"
         }
     }
 
@@ -111,29 +123,40 @@ fun EventDetailsScreen(
         }
     }
 
-    val consensusCount = remember(startCell, endCell, responses, gridConfig, eventRequest, dateOnly) {
-        if (startCell == null) 0
+    val selectedTimestamps = remember(startCell, endCell, gridConfig, dateOnly) {
+        if (startCell == null) emptyList()
         else {
             val endVal = endCell ?: startCell
             val minCell = minOf(startCell, endVal)
             val maxCell = maxOf(startCell, endVal)
-            val timestamps = if (dateOnly) {
-                (minCell..maxCell).map { gridConfig.cellToTimestamp(it) }
+            val cellRange = if (dateOnly) {
+                minCell..maxCell
             } else {
                 val minKey = minOf(timeKey(startCell), timeKey(endVal))
                 val maxKey = maxOf(timeKey(startCell), timeKey(endVal))
                 (0 until gridConfig.totalCells).filter { cell ->
                     timeKey(cell) in minKey..maxKey
-                }.map { gridConfig.cellToTimestamp(it) }
+                }
             }
-            eventRequest.invitees.count { invitee ->
-                responses[invitee.name]?.let { r ->
-                    timestamps.isNotEmpty() && timestamps.all { ts -> r.availability.contains(ts) }
-                } == true
-            }
+            cellRange.map { gridConfig.cellToTimestamp(it) }
         }
     }
-    val consensusPct = if (totalParticipants > 0) (consensusCount * 100f / totalParticipants).toInt() else 0
+
+    val averageConsensusPct = remember(selectedTimestamps, responses, eventRequest.invitees) {
+        if (selectedTimestamps.isEmpty() || eventRequest.invitees.isEmpty()) 0
+        else {
+            var sum = 0f
+            eventRequest.invitees.forEach { invitee ->
+                val response = responses[invitee.name]
+                val attendedCount = if (response != null) {
+                    selectedTimestamps.count { ts -> response.availability.contains(ts) }
+                } else 0
+                val attendanceFraction = attendedCount.toFloat() / selectedTimestamps.size
+                sum += attendanceFraction
+            }
+            ((sum / eventRequest.invitees.size) * 100f).toInt()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -145,8 +168,10 @@ fun EventDetailsScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onEditChoice) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit Choice")
+                    if (isHost) {
+                        IconButton(onClick = onEditChoice) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit Choice")
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -182,17 +207,11 @@ fun EventDetailsScreen(
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
-                    SummaryRow(
-                        label = "Window",
-                        value = if (eventRequest.startDateMillis > 0L && eventRequest.endDateMillis > 0L)
-                            "${dateFormatter.format(Date(eventRequest.startDateMillis))} → ${dateFormatter.format(Date(eventRequest.endDateMillis))}"
-                        else "Not specified"
-                    )
                     SummaryRow(label = "Day", value = dayLabel)
                     SummaryRow(label = "Time", value = if (eventRequest.dateOnlyMode) "All day" else hourLabel)
                     SummaryRow(
                         label = "Consensus",
-                        value = "$consensusCount / $totalParticipants participants ($consensusPct%)"
+                        value = "$averageConsensusPct%"
                     )
                 }
             }
@@ -214,58 +233,71 @@ fun EventDetailsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    val selectedTimestamps = remember(startCell, endCell, gridConfig, dateOnly) {
-                        if (startCell == null) emptyList()
-                        else {
-                            val endVal = endCell ?: startCell
-                            val minCell = minOf(startCell, endVal)
-                            val maxCell = maxOf(startCell, endVal)
-                            val cellRange = if (dateOnly) {
-                                minCell..maxCell
-                            } else {
-                                val minKey = minOf(timeKey(startCell), timeKey(endVal))
-                                val maxKey = maxOf(timeKey(startCell), timeKey(endVal))
-                                (0 until gridConfig.totalCells).filter { cell ->
-                                    timeKey(cell) in minKey..maxKey
-                                }
-                            }
-                            cellRange.map { gridConfig.cellToTimestamp(it) }
-                        }
-                    }
+
 
                     eventRequest.invitees.forEach { invitee ->
                         val response = responses[invitee.name]
-                        val isAvailable = selectedTimestamps.isNotEmpty() && response?.availability?.let { avail ->
-                            selectedTimestamps.all { ts -> avail.contains(ts) }
-                        } == true
+                        val attendedCount = if (selectedTimestamps.isNotEmpty() && response != null) {
+                            selectedTimestamps.count { ts -> response.availability.contains(ts) }
+                        } else 0
+                        val attendanceFraction = if (selectedTimestamps.isNotEmpty()) {
+                            attendedCount.toFloat() / selectedTimestamps.size
+                        } else 0f
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .background(
-                                        color = if (isAvailable) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
-                                        shape = CircleShape
-                                    )
-                            )
-                            Text(
-                                text = invitee.name,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.weight(1f, fill = false)
-                            )
-                            if (invitee.isHost) {
-                                Spacer(modifier = Modifier.width(4.dp))
-                                SuggestionChip(
-                                    onClick = { },
-                                    label = { Text("Host", fontSize = 8.sp) },
-                                    modifier = Modifier.height(20.dp)
+                            ) {
+                                Text(
+                                    text = invitee.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                if (invitee.isHost) {
+                                    SuggestionChip(
+                                        onClick = { },
+                                        label = { Text("Host", fontSize = 8.sp) },
+                                        modifier = Modifier.height(20.dp)
+                                    )
+                                }
+                            }
+                            if (attendanceFraction > 0f) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(120.dp)
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth(attendanceFraction)
+                                            .height(6.dp)
+                                            .background(
+                                                color = when {
+                                                    attendanceFraction < 0.25f -> MaterialTheme.colorScheme.error
+                                                    attendanceFraction <= 0.90f -> Color(0xFFFFC107)
+                                                    else -> Color(0xFF4CAF50)
+                                                }
+                                            )
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = "Not available",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.width(120.dp),
+                                    textAlign = TextAlign.End
                                 )
                             }
                         }
@@ -284,7 +316,7 @@ fun EventDetailsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(28.dp)
             ) {
-                Text("Delete Event", color = MaterialTheme.colorScheme.onError)
+                Text(if (isHost) "Delete Event" else "Leave Event", color = MaterialTheme.colorScheme.onError)
             }
 
             Spacer(Modifier.height(80.dp)) // padding for FAB

@@ -56,6 +56,16 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            val loginError by viewModel.loginError.collectAsState()
+            if (loginError != null) {
+                Text(
+                    text = loginError ?: "",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             Button(
                 onClick = {
                     if (username.isNotBlank()) {

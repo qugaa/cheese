@@ -66,6 +66,8 @@ import com.example.cheese.data.EventRequest
 import com.example.cheese.data.GridConfig
 import com.example.cheese.data.ParticipantResponse
 import com.example.cheese.data.Invitee
+import com.example.cheese.data.getConfirmedEventDates
+import com.example.cheese.data.getConfirmedEventCells
 import com.example.cheese.ui.theme.CuratedParticipantColors
 import com.example.cheese.viewmodel.ScheduleViewModel
 import androidx.compose.runtime.LaunchedEffect
@@ -133,6 +135,9 @@ fun ResolutionScreen(
         }
     }
 
+    val eventsOnDays = remember(events) { events.getConfirmedEventDates() }
+    val eventsOnCells = remember(events, gridConfig) { events.getConfirmedEventCells(gridConfig) }
+
     val heatmap = remember(responses) { viewModel.computeHeatmap(gridConfig) }
     val optimalCell = remember(responses) { viewModel.computeOptimalCell(gridConfig) }
     val totalParticipants = eventRequest.invitees.size
@@ -147,8 +152,8 @@ fun ResolutionScreen(
     // Organizer's selection is a time range (startCell, endCell).
     // First tap sets the anchor (start == end); a second tap in the same column
     // or later closes the range; tapping the anchor again cancels.
-    var selectedRange by remember(optimalCell) {
-        mutableStateOf(optimalCell?.let { it to it })
+    var selectedRange by remember {
+        mutableStateOf<Pair<Int, Int>?>(null)
     }
 
     // Time-order key: column (day) first, then row (hour).
@@ -197,30 +202,28 @@ fun ResolutionScreen(
                 }
             }
 
-            if (dateOnly) {
-                // Select Multiple Days Toggle Row
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Select Multiple Days",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Switch(
-                        checked = selectMultipleDays,
-                        onCheckedChange = {
-                            selectMultipleDays = it
-                            // Reset selection when toggling selection mode to avoid inconsistent states
-                            selectedRange = null
-                        }
-                    )
-                }
+            // Select Multiple Slots Toggle Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (dateOnly) "Select Multiple Days" else "Select Multiple Hours",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Switch(
+                    checked = selectMultipleDays,
+                    onCheckedChange = {
+                        selectMultipleDays = it
+                        // Reset selection when toggling selection mode to avoid inconsistent states
+                        selectedRange = null
+                    }
+                )
             }
 
             // Show Friend Availabilities Toggle Row
@@ -349,6 +352,7 @@ fun ResolutionScreen(
                         responses = responses,
                         showFriendAvailabilities = showFriendAvailabilities,
                         selectedFriend = selectedFriend,
+                        eventsOnDays = eventsOnDays,
                         onCellTapped = { tapped ->
                             if (selectMultipleDays) {
                                 val current = selectedRange
@@ -390,39 +394,44 @@ fun ResolutionScreen(
                         showFriendAvailabilities = showFriendAvailabilities,
                         selectedFriend = selectedFriend,
                         eventRequest = eventRequest,
+                        eventsOnCells = eventsOnCells,
                         verticalScrollState = heatmapScrollState,
                         onCellTapped = { tapped ->
-                            val current = selectedRange
-                            selectedRange = when {
-                                // No selection yet → set the anchor
-                                current == null -> tapped to tapped
+                            if (selectMultipleDays) {
+                                val current = selectedRange
+                                selectedRange = when {
+                                    // No selection yet → set the anchor
+                                    current == null -> tapped to tapped
 
-                                // Tapping the open anchor again → cancel
-                                current.first == current.second && tapped == current.first -> null
+                                    // Tapping the open anchor again → cancel
+                                    current.first == current.second && tapped == current.first -> null
 
-                                // Anchor is open → close the range if the tap is in the
-                                // same column or later; otherwise re-anchor
-                                current.first == current.second -> {
-                                    val anchorCol = current.first % gridConfig.cols
-                                    val tappedCol = tapped % gridConfig.cols
-                                    if (tappedCol >= anchorCol) {
-                                        val minK = minOf(timeKey(current.first), timeKey(tapped))
-                                        val maxK = maxOf(timeKey(current.first), timeKey(tapped))
-                                        val hasGrayCell = (0 until gridConfig.totalCells).any { cellIndex ->
-                                            timeKey(cellIndex) in minK..maxK && (heatmap[cellIndex] ?: 0) == 0
-                                        }
-                                        if (!hasGrayCell) {
-                                            current.first to tapped
+                                    // Anchor is open → close the range if the tap is in the
+                                    // same column or later; otherwise re-anchor
+                                    current.first == current.second -> {
+                                        val anchorCol = current.first % gridConfig.cols
+                                        val tappedCol = tapped % gridConfig.cols
+                                        if (tappedCol >= anchorCol) {
+                                            val minK = minOf(timeKey(current.first), timeKey(tapped))
+                                            val maxK = maxOf(timeKey(current.first), timeKey(tapped))
+                                            val hasGrayCell = (0 until gridConfig.totalCells).any { cellIndex ->
+                                                timeKey(cellIndex) in minK..maxK && (heatmap[cellIndex] ?: 0) == 0
+                                            }
+                                            if (!hasGrayCell) {
+                                                current.first to tapped
+                                            } else {
+                                                tapped to tapped
+                                            }
                                         } else {
                                             tapped to tapped
                                         }
-                                    } else {
-                                        tapped to tapped
                                     }
-                                }
 
-                                // Range already closed → start a new anchor
-                                else -> tapped to tapped
+                                    // Range already closed → start a new anchor
+                                    else -> tapped to tapped
+                                }
+                            } else {
+                                selectedRange = if (selectedRange?.first == tapped) null else tapped to tapped
                             }
                         }
                     )
@@ -511,6 +520,7 @@ private fun HeatmapGrid(
     showFriendAvailabilities: Boolean = false,
     selectedFriend: String? = null,
     eventRequest: EventRequest = EventRequest(),
+    eventsOnCells: Map<Int, List<String>> = emptyMap(),
     verticalScrollState: ScrollState = rememberScrollState()
 ) {
     val labelColWidth = 48.dp
@@ -677,38 +687,57 @@ private fun HeatmapGrid(
                                             .clickable { if (count > 0) onCellTapped(cellIndex) },
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        if (showFriendAvailabilities) {
-                                            if (selectedFriend == null) {
-                                                val dotSize = when {
-                                                    availableInvitees.size > 6 -> 5.dp
-                                                    availableInvitees.size > 4 -> 7.dp
-                                                    else -> 9.dp
+                                        Row(
+                                            horizontalArrangement = Arrangement.Center,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            if (showFriendAvailabilities) {
+                                                if (selectedFriend == null) {
+                                                    if (availableInvitees.isNotEmpty()) {
+                                                        val dotSize = when {
+                                                            availableInvitees.size > 6 -> 4.dp
+                                                            availableInvitees.size > 4 -> 6.dp
+                                                            else -> 8.dp
+                                                        }
+                                                        val spacing = when {
+                                                            availableInvitees.size > 6 -> (-1).dp
+                                                            availableInvitees.size > 4 -> 0.5.dp
+                                                            else -> 2.dp
+                                                        }
+                                                        Row(
+                                                            horizontalArrangement = Arrangement.spacedBy(spacing, Alignment.CenterHorizontally),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            availableInvitees.forEach { invitee ->
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .size(dotSize)
+                                                                        .background(CuratedParticipantColors.getOrElse(invitee.colorIndex) { Color.Gray }, CircleShape)
+                                                                )
+                                                            }
+                                                        }
+                                                    }
                                                 }
-                                                val spacing = when {
-                                                    availableInvitees.size > 6 -> (-2).dp
-                                                    availableInvitees.size > 4 -> 1.dp
-                                                    else -> 3.dp
+                                            } else {
+                                                val cellEmojis = eventsOnCells[cellIndex]
+                                                if (count > 0) {
+                                                    Text(
+                                                        text = "$count",
+                                                        fontSize = 9.sp,
+                                                        color = if (ratio > 0.5f) Color.White else MaterialTheme.colorScheme.onSurface,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(end = if (!cellEmojis.isNullOrEmpty()) 2.dp else 0.dp)
+                                                    )
                                                 }
-                                                Row(
-                                                    horizontalArrangement = Arrangement.spacedBy(spacing, Alignment.CenterHorizontally),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    availableInvitees.forEach { invitee ->
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .size(dotSize)
-                                                                .background(CuratedParticipantColors.getOrElse(invitee.colorIndex) { Color.Gray }, CircleShape)
-                                                        )
+        
+                                                if (!cellEmojis.isNullOrEmpty() && !showFriendAvailabilities) {
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) {
+                                                        cellEmojis.take(3).forEach { emoji ->
+                                                            Text(emoji, fontSize = 8.sp)
+                                                        }
                                                     }
                                                 }
                                             }
-                                        } else if (count > 0) {
-                                            Text(
-                                                text = "$count",
-                                                fontSize = 9.sp,
-                                                color = if (ratio > 0.5f) Color.White else MaterialTheme.colorScheme.onSurface,
-                                                fontWeight = FontWeight.Bold
-                                            )
                                         }
                                     }
 
@@ -795,17 +824,29 @@ private fun FinalSummarySheet(
     onDismiss: () -> Unit
 ) {
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
+    val fullDateFormatter = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
 
     val startCell = selectedRange?.first
     val endCell = selectedRange?.second ?: startCell
 
-    val dayLabel = remember(startCell, endCell, gridConfig) {
+    val dayLabel = remember(startCell, endCell, gridConfig, dateOnly) {
         if (startCell == null) "—"
-        else if (endCell == null || startCell == endCell) gridConfig.cellToDay(startCell)
-        else {
+        else if (endCell == null || startCell == endCell) {
+            fullDateFormatter.format(Date(gridConfig.cellToTimestamp(startCell)))
+        } else if (dateOnly) {
             val minCell = minOf(startCell, endCell)
             val maxCell = maxOf(startCell, endCell)
-            "${gridConfig.cellToDay(minCell)} → ${gridConfig.cellToDay(maxCell)}"
+            val startStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(minCell)))
+            val endStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(maxCell)))
+            if (startStr == endStr) startStr else "$startStr → $endStr"
+        } else {
+            val sCol = startCell % gridConfig.cols
+            val eCol = endCell % gridConfig.cols
+            val minCol = minOf(sCol, eCol)
+            val maxCol = maxOf(sCol, eCol)
+            val startStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(minCol)))
+            val endStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(maxCol)))
+            if (startStr == endStr) startStr else "$startStr → $endStr"
         }
     }
 
@@ -835,15 +876,21 @@ private fun FinalSummarySheet(
         } ?: emptyList()
     }
 
-    val consensusCount = remember(selectedTimestamps, responses, eventRequest) {
-        if (selectedTimestamps.isEmpty()) 0
-        else eventRequest.invitees.count { invitee ->
-            responses[invitee.name]?.let { r ->
-                selectedTimestamps.all { ts -> r.availability.contains(ts) }
-            } == true
+    val averageConsensusPct = remember(selectedTimestamps, responses, eventRequest.invitees) {
+        if (selectedTimestamps.isEmpty() || eventRequest.invitees.isEmpty()) 0
+        else {
+            var sum = 0f
+            eventRequest.invitees.forEach { invitee ->
+                val response = responses[invitee.name]
+                val attendedCount = if (response != null) {
+                    selectedTimestamps.count { ts -> response.availability.contains(ts) }
+                } else 0
+                val attendanceFraction = attendedCount.toFloat() / selectedTimestamps.size
+                sum += attendanceFraction
+            }
+            ((sum / eventRequest.invitees.size) * 100f).toInt()
         }
     }
-    val consensusPct = if (totalParticipants > 0) (consensusCount * 100f / totalParticipants).toInt() else 0
 
     Column(
         modifier = Modifier
@@ -863,17 +910,11 @@ private fun FinalSummarySheet(
         HorizontalDivider()
 
         SummaryRow(label = "Event", value = "${eventRequest.eventEmoji} ${eventRequest.eventName.ifBlank { "Untitled" }}")
-        SummaryRow(
-            label = "Window",
-            value = if (eventRequest.startDateMillis > 0L && eventRequest.endDateMillis > 0L)
-                "${dateFormatter.format(Date(eventRequest.startDateMillis))} → ${dateFormatter.format(Date(eventRequest.endDateMillis))}"
-            else "Not specified"
-        )
         SummaryRow(label = "Day", value = dayLabel)
         SummaryRow(label = "Time", value = if (dateOnly) "All day" else hourLabel)
         SummaryRow(
             label = "Consensus",
-            value = "$consensusCount / $totalParticipants participants ($consensusPct%)"
+            value = "$averageConsensusPct%"
         )
 
         HorizontalDivider()
@@ -886,44 +927,74 @@ private fun FinalSummarySheet(
 
         eventRequest.invitees.forEach { invitee ->
             val response = responses[invitee.name]
-            val isAvailable = selectedTimestamps.isNotEmpty() && response?.availability?.let { avail ->
-                selectedTimestamps.all { ts -> avail.contains(ts) }
-            } == true
+            val attendedCount = if (selectedTimestamps.isNotEmpty() && response != null) {
+                selectedTimestamps.count { ts -> response.availability.contains(ts) }
+            } else 0
+            val attendanceFraction = if (selectedTimestamps.isNotEmpty()) {
+                attendedCount.toFloat() / selectedTimestamps.size
+            } else 0f
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .background(
-                            color = if (isAvailable) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
-                            shape = CircleShape
-                        )
-                )
-                Text(
-                    text = invitee.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f, fill = false)
-                )
-                if (invitee.isHost) {
-                    Spacer(modifier = Modifier.width(4.dp))
-                    SuggestionChip(
-                        onClick = { },
-                        label = { Text("Host", fontSize = 8.sp) },
-                        modifier = Modifier.height(20.dp)
+                ) {
+                    Text(
+                        text = invitee.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (invitee.isHost) {
+                        SuggestionChip(
+                            onClick = { },
+                            label = { Text("Host", fontSize = 8.sp) },
+                            modifier = Modifier.height(20.dp)
+                        )
+                    }
+                }
+                if (attendanceFraction > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .width(120.dp)
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(attendanceFraction)
+                                .height(6.dp)
+                                .background(
+                                    color = when {
+                                        attendanceFraction < 0.25f -> MaterialTheme.colorScheme.error
+                                        attendanceFraction <= 0.95f -> Color(0xFFFFC107)
+                                        else -> Color(0xFF4CAF50)
+                                    }
+                                )
+                        )
+                    }
+                } else {
+                    Text(
+                        text = "Not available",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.width(120.dp),
+                        textAlign = TextAlign.End
                     )
                 }
             }
         }
 
         Text(
-            text = "$consensusCount out of $totalParticipants Available",
+            text = "$averageConsensusPct% Average Availability",
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface,
@@ -975,6 +1046,7 @@ private fun HeatmapMonthCalendar(
     responses: Map<String, ParticipantResponse>,
     showFriendAvailabilities: Boolean,
     selectedFriend: String? = null,
+    eventsOnDays: Map<LocalDate, List<String>> = emptyMap(),
     onCellTapped: (Int) -> Unit
 ) {
     val minDate = remember(gridConfig.startDateMillis) { gridConfig.startDateMillis.toUtcLocalDate() }
@@ -1070,6 +1142,7 @@ private fun HeatmapMonthCalendar(
                 responses = responses,
                 showFriendAvailabilities = showFriendAvailabilities,
                 selectedFriend = selectedFriend,
+                eventsOnDays = eventsOnDays,
                 onCellTapped = onCellTapped
             )
         }
@@ -1089,6 +1162,7 @@ private fun HeatmapMonthDaysGrid(
     responses: Map<String, ParticipantResponse>,
     showFriendAvailabilities: Boolean,
     selectedFriend: String? = null,
+    eventsOnDays: Map<LocalDate, List<String>> = emptyMap(),
     onCellTapped: (Int) -> Unit
 ) {
     val daysInMonth = month.lengthOfMonth()
@@ -1143,6 +1217,7 @@ private fun HeatmapMonthDaysGrid(
                                     showFriendAvailabilities = showFriendAvailabilities,
                                     selectedFriendColor = selectedFriendColor,
                                     selectedFriendAvailable = isSelectedFriendAvailable,
+                                    eventsOnDay = eventsOnDays[date] ?: emptyList(),
                                     modifier = Modifier.weight(1f),
                                     onClick = {
                                         if (count > 0) {
@@ -1176,6 +1251,7 @@ private fun HeatmapDayCell(
     showFriendAvailabilities: Boolean,
     selectedFriendColor: Color? = null,
     selectedFriendAvailable: Boolean = false,
+    eventsOnDay: List<String> = emptyList(),
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
@@ -1252,12 +1328,31 @@ private fun HeatmapDayCell(
                         }
                     }
                 }
-            } else if (count > 0) {
-                Text(
-                    text = "$count",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 8.sp),
-                    color = foreground
-                )
+            } else {
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
+                    if (count > 0) {
+                        Text(
+                            text = "$count",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 8.sp),
+                            color = foreground,
+                            modifier = Modifier.padding(end = if (eventsOnDay.isNotEmpty()) 2.dp else 0.dp)
+                        )
+                    }
+                    
+                    if (eventsOnDay.isNotEmpty() && !showFriendAvailabilities) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(1.dp)
+                        ) {
+                            eventsOnDay.take(3).forEach { emoji ->
+                                Text(text = emoji, fontSize = 8.sp)
+                            }
+                        }
+                    }
+                }
             }
         }
     }

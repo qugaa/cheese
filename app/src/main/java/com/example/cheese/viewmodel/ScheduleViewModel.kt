@@ -1,6 +1,8 @@
 package com.example.cheese.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import android.content.Context
+import androidx.lifecycle.AndroidViewModel
 import com.example.cheese.data.*
 import com.example.cheese.ui.theme.CuratedParticipantColors
 import com.google.firebase.firestore.FirebaseFirestore
@@ -18,9 +20,10 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
-class ScheduleViewModel : ViewModel() {
+class ScheduleViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = FirebaseFirestore.getInstance()
+    private val prefs = application.getSharedPreferences("cheese_prefs", Context.MODE_PRIVATE)
 
     // ── Auth & Users ──────────────────────────────────────────────────────────
 
@@ -29,6 +32,9 @@ class ScheduleViewModel : ViewModel() {
 
     private val _isLoggingIn = MutableStateFlow(false)
     val isLoggingIn: StateFlow<Boolean> = _isLoggingIn.asStateFlow()
+
+    private val _loginError = MutableStateFlow<String?>(null)
+    val loginError: StateFlow<String?> = _loginError.asStateFlow()
 
     private val _friends = MutableStateFlow<List<Friend>>(emptyList())
     val friends: StateFlow<List<Friend>> = _friends.asStateFlow()
@@ -43,14 +49,24 @@ class ScheduleViewModel : ViewModel() {
     private var eventsListener: ListenerRegistration? = null
     private var notificationsListener: ListenerRegistration? = null
 
+    init {
+        val savedUser = prefs.getString("current_user", null)
+        if (savedUser != null) {
+            _currentUser.value = savedUser
+            setupRealtimeListeners(savedUser)
+        }
+    }
+
     fun login(username: String, onSuccess: () -> Unit) {
         if (username.isBlank()) return
         _isLoggingIn.value = true
+        _loginError.value = null
 
         val docRef = db.collection("users").document(username)
         docRef.get().addOnSuccessListener { document ->
             if (document.exists()) {
                 _currentUser.value = username
+                prefs.edit().putString("current_user", username).apply()
                 setupRealtimeListeners(username)
                 onSuccess()
                 _isLoggingIn.value = false
@@ -63,12 +79,17 @@ class ScheduleViewModel : ViewModel() {
                 )
                 docRef.set(newUser).addOnSuccessListener {
                     _currentUser.value = username
+                    prefs.edit().putString("current_user", username).apply()
                     setupRealtimeListeners(username)
                     onSuccess()
                     _isLoggingIn.value = false
+                }.addOnFailureListener { e ->
+                    _loginError.value = e.message ?: "Failed to create user"
+                    _isLoggingIn.value = false
                 }
             }
-        }.addOnFailureListener {
+        }.addOnFailureListener { e ->
+            _loginError.value = e.message ?: "Failed to fetch user. Check your connection or Firestore rules."
             _isLoggingIn.value = false
         }
     }
@@ -78,6 +99,7 @@ class ScheduleViewModel : ViewModel() {
         eventsListener?.remove()
         notificationsListener?.remove()
         _currentUser.value = null
+        prefs.edit().remove("current_user").apply()
         _friends.value = emptyList()
         _events.value = emptyList()
         _templates.value = emptyList()
@@ -391,6 +413,19 @@ class ScheduleViewModel : ViewModel() {
             val newState = eventState.copy(request = updatedRequest, responses = updatedResponses)
             
             db.collection("events").document(eventId).set(newState)
+            
+            // Notify host and other participants that user has left
+            updatedInvitees.forEach { invitee ->
+                sendNotification(
+                    recipient = invitee.name,
+                    sender = currentUser,
+                    type = "LEFT_EVENT",
+                    eventId = eventId,
+                    eventName = eventState.request.eventName,
+                    eventEmoji = eventState.request.eventEmoji,
+                    message = "$currentUser has left ${eventState.request.eventName}"
+                )
+            }
         }
 
         // Eagerly remove from local state to immediately dismiss the UI component

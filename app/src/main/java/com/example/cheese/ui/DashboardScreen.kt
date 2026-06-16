@@ -1548,16 +1548,31 @@ private fun CalendarTab(
         val map = mutableMapOf<LocalDate, MutableList<EventState>>()
         events.forEach { eventState ->
             val finalIndex = eventState.finalCellIndex
-            if (finalIndex != null) {
+            val finalEndIndex = eventState.finalCellEndIndex ?: finalIndex
+            if (finalIndex != null && finalEndIndex != null) {
                 val isDateOnly = eventState.request.dateOnlyMode
                 val config = if (isDateOnly) {
                     GridConfig(eventState.request.startDateMillis, eventState.request.endDateMillis, 0, 1)
                 } else {
                     GridConfig(eventState.request.startDateMillis, eventState.request.endDateMillis, eventState.request.startHour, eventState.request.endHour)
                 }
-                val timestamp = config.cellToTimestamp(finalIndex)
-                val date = java.time.Instant.ofEpochMilli(timestamp).atZone(java.time.ZoneOffset.UTC).toLocalDate()
-                map.getOrPut(date) { mutableListOf() }.add(eventState)
+                
+                // For regular events, cells might be across columns. For date-only, cells are dates directly.
+                // Using min/max in case the start/end indexes are flipped visually, though usually start <= end.
+                val minIdx = minOf(finalIndex, finalEndIndex)
+                val maxIdx = maxOf(finalIndex, finalEndIndex)
+                
+                val startTimestamp = config.cellToTimestamp(minIdx)
+                val endTimestamp = config.cellToTimestamp(maxIdx)
+                
+                val startDate = java.time.Instant.ofEpochMilli(startTimestamp).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+                val endDate = java.time.Instant.ofEpochMilli(endTimestamp).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+                
+                var currDate = startDate
+                while (!currDate.isAfter(endDate)) {
+                    map.getOrPut(currDate) { mutableListOf() }.add(eventState)
+                    currDate = currDate.plusDays(1)
+                }
             }
         }
         map

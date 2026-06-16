@@ -123,29 +123,40 @@ fun EventDetailsScreen(
         }
     }
 
-    val consensusCount = remember(startCell, endCell, responses, gridConfig, eventRequest, dateOnly) {
-        if (startCell == null) 0
+    val selectedTimestamps = remember(startCell, endCell, gridConfig, dateOnly) {
+        if (startCell == null) emptyList()
         else {
             val endVal = endCell ?: startCell
             val minCell = minOf(startCell, endVal)
             val maxCell = maxOf(startCell, endVal)
-            val timestamps = if (dateOnly) {
-                (minCell..maxCell).map { gridConfig.cellToTimestamp(it) }
+            val cellRange = if (dateOnly) {
+                minCell..maxCell
             } else {
                 val minKey = minOf(timeKey(startCell), timeKey(endVal))
                 val maxKey = maxOf(timeKey(startCell), timeKey(endVal))
                 (0 until gridConfig.totalCells).filter { cell ->
                     timeKey(cell) in minKey..maxKey
-                }.map { gridConfig.cellToTimestamp(it) }
+                }
             }
-            eventRequest.invitees.count { invitee ->
-                responses[invitee.name]?.let { r ->
-                    timestamps.isNotEmpty() && timestamps.all { ts -> r.availability.contains(ts) }
-                } == true
-            }
+            cellRange.map { gridConfig.cellToTimestamp(it) }
         }
     }
-    val consensusPct = if (totalParticipants > 0) (consensusCount * 100f / totalParticipants).toInt() else 0
+
+    val averageConsensusPct = remember(selectedTimestamps, responses, eventRequest.invitees) {
+        if (selectedTimestamps.isEmpty() || eventRequest.invitees.isEmpty()) 0
+        else {
+            var sum = 0f
+            eventRequest.invitees.forEach { invitee ->
+                val response = responses[invitee.name]
+                val attendedCount = if (response != null) {
+                    selectedTimestamps.count { ts -> response.availability.contains(ts) }
+                } else 0
+                val attendanceFraction = attendedCount.toFloat() / selectedTimestamps.size
+                sum += attendanceFraction
+            }
+            ((sum / eventRequest.invitees.size) * 100f).toInt()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -200,7 +211,7 @@ fun EventDetailsScreen(
                     SummaryRow(label = "Time", value = if (eventRequest.dateOnlyMode) "All day" else hourLabel)
                     SummaryRow(
                         label = "Consensus",
-                        value = "$consensusCount / $totalParticipants participants ($consensusPct%)"
+                        value = "$averageConsensusPct%"
                     )
                 }
             }
@@ -222,24 +233,7 @@ fun EventDetailsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    val selectedTimestamps = remember(startCell, endCell, gridConfig, dateOnly) {
-                        if (startCell == null) emptyList()
-                        else {
-                            val endVal = endCell ?: startCell
-                            val minCell = minOf(startCell, endVal)
-                            val maxCell = maxOf(startCell, endVal)
-                            val cellRange = if (dateOnly) {
-                                minCell..maxCell
-                            } else {
-                                val minKey = minOf(timeKey(startCell), timeKey(endVal))
-                                val maxKey = maxOf(timeKey(startCell), timeKey(endVal))
-                                (0 until gridConfig.totalCells).filter { cell ->
-                                    timeKey(cell) in minKey..maxKey
-                                }
-                            }
-                            cellRange.map { gridConfig.cellToTimestamp(it) }
-                        }
-                    }
+
 
                     eventRequest.invitees.forEach { invitee ->
                         val response = responses[invitee.name]

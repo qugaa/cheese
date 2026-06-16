@@ -97,6 +97,8 @@ import androidx.compose.ui.unit.sp
 import com.example.cheese.data.GridConfig
 import com.example.cheese.data.Invitee
 import com.example.cheese.data.ParticipantResponse
+import com.example.cheese.data.getConfirmedEventDates
+import com.example.cheese.data.getConfirmedEventCells
 import com.example.cheese.ui.theme.CuratedParticipantColors
 import com.example.cheese.viewmodel.ScheduleViewModel
 import kotlinx.coroutines.launch
@@ -146,6 +148,9 @@ fun ParticipantScreen(
             GridConfig(eventRequest.startDateMillis, eventRequest.endDateMillis, eventRequest.startHour, eventRequest.endHour)
         }
     }
+
+    val eventsOnDays = remember(events) { events.getConfirmedEventDates() }
+    val eventsOnCells = remember(events, gridConfig) { events.getConfirmedEventCells(gridConfig) }
 
     val restrictedDays = remember(organizerRestrictions, eventRequest, dateOnly) {
         if (organizerRestrictions.isEmpty()) {
@@ -599,7 +604,8 @@ fun ParticipantScreen(
                         responses = responses,
                         showFriendAvailabilities = showFriendAvailabilities,
                         participantName = participantName,
-                        selectedFriend = selectedFriend
+                        selectedFriend = selectedFriend,
+                        eventsOnDays = eventsOnDays
                     )
                 }
             } else {
@@ -773,6 +779,7 @@ fun ParticipantScreen(
                         onDragStateChanged = { interacting ->
                             scrollEnabled = !interacting
                         },
+                        eventsOnCells = eventsOnCells,
                         verticalScrollState = verticalScrollState
                     )
 
@@ -856,7 +863,8 @@ fun ParticipantScreen(
                             onCellToggled = {},
                             onCellPainted = { _, _ -> },
                             readOnly = true,
-                            selectionColor = CuratedParticipantColors[viewed.colorIndex]
+                            selectionColor = CuratedParticipantColors[viewed.colorIndex],
+                            eventsOnCells = eventsOnCells
                         )
                     }
                 }
@@ -891,6 +899,7 @@ fun AvailabilityGrid(
     scrollEnabled: Boolean = true,
     onDragStateChanged: (Boolean) -> Unit = {},
     selectedFriend: String? = null,
+    eventsOnCells: Map<Int, List<String>> = emptyMap(),
     verticalScrollState: ScrollState = rememberScrollState()
 ) {
     val currentSelectedCells by rememberUpdatedState(selectedCells)
@@ -1157,6 +1166,8 @@ fun AvailabilityGrid(
                                         }
                                     }
 
+                                    val cellEvents = eventsOnCells[cellIndex] ?: emptyList()
+
                                     Box(
                                         modifier = Modifier
                                             .width(cellWidth)
@@ -1180,54 +1191,56 @@ fun AvailabilityGrid(
                                                         end = Offset(size.width, 0f),
                                                         strokeWidth = 1.5.dp.toPx()
                                                     )
-                                                } else if (isConflicting) {
-                                                    drawRect(Color.Gray.copy(alpha = 0.4f))
-                                                    drawLine(
-                                                        color = Color.DarkGray.copy(alpha = 0.6f),
-                                                        start = Offset(0f, 0f),
-                                                        end = Offset(size.width, size.height),
-                                                        strokeWidth = 2.dp.toPx()
-                                                    )
-                                                    drawLine(
-                                                        color = Color.DarkGray.copy(alpha = 0.6f),
-                                                        start = Offset(size.width, 0f),
-                                                        end = Offset(0f, size.height),
-                                                        strokeWidth = 2.dp.toPx()
-                                                    )
                                                 }
                                             },
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        if (showFriendAvailabilities && !isRestricted && selectedFriend == null) {
-                                            val dotSize = when {
-                                                availableInvitees.size > 6 -> 5.dp
-                                                availableInvitees.size > 4 -> 7.dp
-                                                else -> 9.dp
-                                            }
-                                            val spacing = when {
-                                                availableInvitees.size > 6 -> (-2).dp
-                                                availableInvitees.size > 4 -> 1.dp
-                                                else -> 3.dp
-                                            }
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(spacing, Alignment.CenterHorizontally),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                availableInvitees.forEach { invitee ->
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(dotSize)
-                                                            .background(CuratedParticipantColors.getOrElse(invitee.colorIndex) { Color.Gray }, CircleShape)
+                                        Row(
+                                            horizontalArrangement = Arrangement.Center,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            if (showFriendAvailabilities && !isRestricted && selectedFriend == null) {
+                                                val dotSize = when {
+                                                    availableInvitees.size > 6 -> 5.dp
+                                                    availableInvitees.size > 4 -> 7.dp
+                                                    else -> 9.dp
+                                                }
+                                                val spacing = when {
+                                                    availableInvitees.size > 6 -> (-2).dp
+                                                    availableInvitees.size > 4 -> 1.dp
+                                                    else -> 3.dp
+                                                }
+                                                Row(
+                                                    horizontalArrangement = Arrangement.spacedBy(spacing, Alignment.CenterHorizontally),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    availableInvitees.forEach { invitee ->
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(dotSize)
+                                                                .background(CuratedParticipantColors.getOrElse(invitee.colorIndex) { Color.Gray }, CircleShape)
+                                                        )
+                                                    }
+                                                }
+                                            } else {
+                                                if (projectedCount > 0 && !isRestricted && !readOnly && showCounts) {
+                                                    Text(
+                                                        text = "$projectedCount",
+                                                        fontSize = 9.sp,
+                                                        color = Color(0xFF1B5E20),
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(end = if (cellEvents.isNotEmpty() && !showFriendAvailabilities) 2.dp else 0.dp)
+                                                    )
+                                                }
+                                                
+                                                if (cellEvents.isNotEmpty() && !showFriendAvailabilities) {
+                                                    Text(
+                                                        text = cellEvents.take(3).joinToString(""),
+                                                        fontSize = 8.sp,
+                                                        lineHeight = 8.sp
                                                     )
                                                 }
                                             }
-                                        } else if (projectedCount > 0 && !isRestricted && !readOnly && showCounts) {
-                                            Text(
-                                                text = "$projectedCount",
-                                                fontSize = 9.sp,
-                                                color = Color(0xFF1B5E20),
-                                                fontWeight = FontWeight.Bold
-                                            )
                                         }
                                     }
 

@@ -382,16 +382,18 @@ fun OrganizerScreen(
                                                 .background(CuratedParticipantColors[invitee.colorIndex], CircleShape)
                                         )
                                     },
-                                    trailingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "Remove ${invitee.name}",
-                                            modifier = Modifier.clickable {
-                                                viewModel.removeInvitee(invitee.name)
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            }
-                                        )
-                                    },
+                                    trailingIcon = if (!invitee.isHost) {
+                                        {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Remove ${invitee.name}",
+                                                modifier = Modifier.clickable {
+                                                    viewModel.removeInvitee(invitee.name)
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                }
+                                            )
+                                        }
+                                    } else null,
                                     colors = InputChipDefaults.inputChipColors(
                                         selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
                                         selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer

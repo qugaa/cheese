@@ -660,6 +660,9 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
 
     fun removeInvitee(name: String) {
         _eventRequest.update { current ->
+            val target = current.invitees.find { it.name == name }
+            if (target?.isHost == true) return@update current
+            
             val newInvitees = current.invitees.filterNot { it.name == name }
             current.copy(
                 invitees = newInvitees,

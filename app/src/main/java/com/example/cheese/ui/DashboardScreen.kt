@@ -946,20 +946,22 @@ private fun FinalizedEventCard(
                         val finalEndIndex = eventState.finalCellEndIndex
                         if (finalIndex != null) {
                             val isDateOnly = eventState.request.dateOnlyMode
-                            val config = if (isDateOnly) {
-                                com.example.cheese.data.GridConfig(
-                                    eventState.request.startDateMillis,
-                                    eventState.request.endDateMillis,
-                                    0,
-                                    1
-                                )
-                            } else {
-                                com.example.cheese.data.GridConfig(
-                                    eventState.request.startDateMillis,
-                                    eventState.request.endDateMillis,
-                                    eventState.request.startHour,
-                                    eventState.request.endHour
-                                )
+                            val config = remember(eventState.request) {
+                                if (isDateOnly) {
+                                    com.example.cheese.data.GridConfig(
+                                        eventState.request.startDateMillis,
+                                        eventState.request.endDateMillis,
+                                        0,
+                                        1
+                                    )
+                                } else {
+                                    com.example.cheese.data.GridConfig(
+                                        eventState.request.startDateMillis,
+                                        eventState.request.endDateMillis,
+                                        eventState.request.startHour,
+                                        eventState.request.endHour
+                                    )
+                                }
                             }
 
                             val endIdx = finalEndIndex ?: finalIndex

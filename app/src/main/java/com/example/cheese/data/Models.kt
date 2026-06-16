@@ -91,6 +91,8 @@ data class EventState(
     val organizerRestrictions: List<Long> = emptyList()
 )
 
+private val sharedGridDateFormatter by lazy { SimpleDateFormat("EEE dd", Locale.getDefault()) }
+
 /**
  * Dynamic grid dimensions based on the event's date range.
  * The number of columns adapts dynamically to the concrete calendar dates.
@@ -114,20 +116,22 @@ data class GridConfig(
 
     val totalCells: Int = rows * cols
 
-    private val dateFormatter = SimpleDateFormat("EEE dd", Locale.getDefault())
-
-    val dayLabels: List<String> = (0 until cols).map { colOffset ->
-        if (startDateMillis > 0L) {
-            val dateMillis = startDateMillis + colOffset * (1000 * 60 * 60 * 24L)
-            dateFormatter.format(Date(dateMillis))
-        } else {
-            "Day ${colOffset + 1}"
+    val dayLabels: List<String> by lazy {
+        (0 until cols).map { colOffset ->
+            if (startDateMillis > 0L) {
+                val dateMillis = startDateMillis + colOffset * (1000 * 60 * 60 * 24L)
+                sharedGridDateFormatter.format(Date(dateMillis))
+            } else {
+                "Day ${colOffset + 1}"
+            }
         }
     }
 
-    val hourLabels: List<String> = (startHour until endHour).map { h -> 
-        val displayHour = if (h >= 24) h - 24 else h
-        "%02d:00".format(displayHour)
+    val hourLabels: List<String> by lazy {
+        (startHour until endHour).map { h -> 
+            val displayHour = if (h >= 24) h - 24 else h
+            "%02d:00".format(displayHour)
+        }
     }
 
     /** Converts a (row, col) pair to a flat cell index. */

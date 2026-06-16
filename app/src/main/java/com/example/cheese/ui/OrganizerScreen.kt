@@ -412,16 +412,21 @@ fun OrganizerScreen(
                         Text("Saved Friends", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(friends, key = { it.id }) { friend ->
-                                val isAdded = eventRequest.invitees.any { it.name == friend.name }
+                                val targetInvitee = eventRequest.invitees.find { it.name == friend.name }
+                                val isAdded = targetInvitee != null
+                                val isHost = targetInvitee?.isHost == true
                                 FilterChip(
                                     selected = isAdded,
                                     onClick = {
                                         if (isAdded) {
-                                            viewModel.removeInvitee(friend.name)
+                                            if (!isHost) {
+                                                viewModel.removeInvitee(friend.name)
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            }
                                         } else {
                                             viewModel.addInviteeWithoutVerification(friend.name, friend.colorIndex)
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         }
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     },
                                     label = { Text(friend.name) }
                                 )

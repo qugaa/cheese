@@ -1765,9 +1765,8 @@ private fun CalendarTab(
 
         var isPastEventsExpanded by remember { mutableStateOf(false) }
         val pastEvents = remember(events) { events.filter { it.isPastEvent() }.sortedByDescending { it.request.endDateMillis } }
-        val hasEventsOnSelectedDate = selectedDate?.let { confirmedEventsByDate[it]?.isNotEmpty() == true } ?: false
 
-        if (pastEvents.isNotEmpty() && !hasEventsOnSelectedDate) {
+        if (pastEvents.isNotEmpty() && selectedDate == null) {
             Spacer(modifier = Modifier.height(16.dp))
             Row(
                 modifier = Modifier

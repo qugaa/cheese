@@ -24,6 +24,9 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.ui.draw.alpha
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -1760,30 +1763,76 @@ private fun CalendarTab(
             }
         }
 
+        var isPastEventsExpanded by remember { mutableStateOf(false) }
         val pastEvents = remember(events) { events.filter { it.isPastEvent() }.sortedByDescending { it.request.endDateMillis } }
-        if (pastEvents.isNotEmpty()) {
+        val hasEventsOnSelectedDate = selectedDate?.let { confirmedEventsByDate[it]?.isNotEmpty() == true } ?: false
+
+        if (pastEvents.isNotEmpty() && !hasEventsOnSelectedDate) {
             Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "Past Events",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isPastEventsExpanded = !isPastEventsExpanded }
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Past Events",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Icon(
+                    imageVector = if (isPastEventsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isPastEventsExpanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().animateContentSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                pastEvents.forEach { eventState ->
-                    EventCard(
-                        eventState = eventState,
-                        currentUser = currentUser,
-                        isActionNeeded = false,
-                        onDelete = { onDeleteEvent(eventState.request.id) },
-                        onClick = { onOpenEvent(eventState.request.id) },
-                        isPastEvent = true
-                    )
+                val displayEvents = if (isPastEventsExpanded) pastEvents else pastEvents.take(3)
+                
+                displayEvents.forEachIndexed { index, eventState ->
+                    val isFaded = !isPastEventsExpanded && index == 2 && pastEvents.size > 2
+                    
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Box(modifier = Modifier.alpha(if (isFaded) 0.4f else 1f)) {
+                            EventCard(
+                                eventState = eventState,
+                                currentUser = currentUser,
+                                isActionNeeded = false,
+                                onDelete = { onDeleteEvent(eventState.request.id) },
+                                onClick = { if (!isFaded) onOpenEvent(eventState.request.id) else isPastEventsExpanded = true },
+                                isPastEvent = true
+                            )
+                        }
+                        
+                        if (isFaded) {
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clickable { isPastEventsExpanded = true },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f), CircleShape)
+                                        .padding(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "Expand",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

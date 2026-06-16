@@ -793,7 +793,14 @@ private fun HorizontalMonthCalendar(
     val monthLabel =
         "${visibleMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault())} ${visibleMonth.year}"
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    androidx.compose.material3.Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        )
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
 
         // ── Month navigation header ──────────────────────────────────────────
         Row(
@@ -869,6 +876,7 @@ private fun HorizontalMonthCalendar(
                 eventsOnDays = eventsOnDays
             )
         }
+    }
     }
 }
 
@@ -1106,7 +1114,14 @@ fun MultiSelectMonthCalendar(
     val monthLabel =
         "${visibleMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault())} ${visibleMonth.year}"
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    androidx.compose.material3.Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        )
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
 
         // ── Month navigation header ──────────────────────────────────────────
         Row(
@@ -1192,6 +1207,7 @@ fun MultiSelectMonthCalendar(
             )
         }
     }
+    }
 }
 
 /** A single tappable day. Anchors are filled, in-range days tinted, past days dimmed. */
@@ -1230,7 +1246,7 @@ private fun DayCell(
         ) {
             Text(
                 text = day.toString(),
-                style = MaterialTheme.typography.bodyMedium,
+                style = if (enabled) MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold) else MaterialTheme.typography.bodyMedium,
                 color = foreground
             )
             if (events.isNotEmpty()) {
@@ -1262,11 +1278,11 @@ private fun HeatmapDayCell(
 ) {
     val bg = when {
         showFriendAvailabilities && selectedFriendColor != null -> {
-            if (selectedFriendAvailable) selectedFriendColor else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+            if (selectedFriendAvailable) selectedFriendColor else Color.Transparent
         }
-        showFriendAvailabilities -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        showFriendAvailabilities -> Color.Transparent
         count > 0 -> heatColor(ratio)
-        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        else -> Color.Transparent
     }
 
     val foreground = when {

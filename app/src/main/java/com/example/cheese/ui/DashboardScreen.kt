@@ -24,6 +24,9 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.ui.draw.alpha
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -946,31 +949,35 @@ private fun FinalizedEventCard(
                         val finalEndIndex = eventState.finalCellEndIndex
                         if (finalIndex != null) {
                             val isDateOnly = eventState.request.dateOnlyMode
-                            val config = if (isDateOnly) {
-                                com.example.cheese.data.GridConfig(
-                                    eventState.request.startDateMillis,
-                                    eventState.request.endDateMillis,
-                                    0,
-                                    1
-                                )
-                            } else {
-                                com.example.cheese.data.GridConfig(
-                                    eventState.request.startDateMillis,
-                                    eventState.request.endDateMillis,
-                                    eventState.request.startHour,
-                                    eventState.request.endHour
-                                )
+                            val config = remember(eventState.request) {
+                                if (isDateOnly) {
+                                    com.example.cheese.data.GridConfig(
+                                        eventState.request.startDateMillis,
+                                        eventState.request.endDateMillis,
+                                        0,
+                                        1
+                                    )
+                                } else {
+                                    com.example.cheese.data.GridConfig(
+                                        eventState.request.startDateMillis,
+                                        eventState.request.endDateMillis,
+                                        eventState.request.startHour,
+                                        eventState.request.endHour
+                                    )
+                                }
                             }
+
+                            val endIdx = finalEndIndex ?: finalIndex
+                            val firstCell = if (config.cellToTimestamp(finalIndex) <= config.cellToTimestamp(endIdx)) finalIndex else endIdx
+                            val lastCell = if (config.cellToTimestamp(finalIndex) <= config.cellToTimestamp(endIdx)) endIdx else finalIndex
 
                             val dayStr = if (finalEndIndex == null || finalIndex == finalEndIndex) {
                                 config.cellToDay(finalIndex)
                             } else {
-                                val sCol = finalIndex % config.cols
-                                val eCol = finalEndIndex % config.cols
-                                val minCol = minOf(sCol, eCol)
-                                val maxCol = maxOf(sCol, eCol)
-                                if (minCol == maxCol) config.cellToDay(finalIndex)
-                                else "${config.dayLabels.getOrElse(minCol) { "?" }} → ${config.dayLabels.getOrElse(maxCol) { "?" }}"
+                                val sCol = firstCell % config.cols
+                                val eCol = lastCell % config.cols
+                                if (sCol == eCol) config.cellToDay(firstCell)
+                                else "${config.dayLabels.getOrElse(sCol) { "?" }} → ${config.dayLabels.getOrElse(eCol) { "?" }}"
                             }
 
                             val hourStr = if (isDateOnly) {
@@ -978,11 +985,9 @@ private fun FinalizedEventCard(
                             } else if (finalEndIndex == null || finalIndex == finalEndIndex) {
                                 config.cellToHour(finalIndex)
                             } else {
-                                val sRow = finalIndex / config.cols
-                                val eRow = finalEndIndex / config.cols
-                                val minRow = minOf(sRow, eRow)
-                                val maxRow = maxOf(sRow, eRow)
-                                "${config.hourLabels.getOrElse(minRow) { "?" }} → ${config.hourLabels.getOrElse(maxRow) { "?" }}"
+                                val sRow = firstCell / config.cols
+                                val eRow = lastCell / config.cols
+                                "${config.hourLabels.getOrElse(sRow) { "?" }} → ${config.hourLabels.getOrElse(eRow) { "?" }}"
                             }
 
                             Text(
@@ -1758,30 +1763,75 @@ private fun CalendarTab(
             }
         }
 
+        var isPastEventsExpanded by remember { mutableStateOf(false) }
         val pastEvents = remember(events) { events.filter { it.isPastEvent() }.sortedByDescending { it.request.endDateMillis } }
-        if (pastEvents.isNotEmpty()) {
+
+        if (pastEvents.isNotEmpty() && selectedDate == null) {
             Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "Past Events",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isPastEventsExpanded = !isPastEventsExpanded }
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Past Events",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Icon(
+                    imageVector = if (isPastEventsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isPastEventsExpanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().animateContentSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                pastEvents.forEach { eventState ->
-                    EventCard(
-                        eventState = eventState,
-                        currentUser = currentUser,
-                        isActionNeeded = false,
-                        onDelete = { onDeleteEvent(eventState.request.id) },
-                        onClick = { onOpenEvent(eventState.request.id) },
-                        isPastEvent = true
-                    )
+                val displayEvents = if (isPastEventsExpanded) pastEvents else pastEvents.take(3)
+                
+                displayEvents.forEachIndexed { index, eventState ->
+                    val isFaded = !isPastEventsExpanded && index == 2 && pastEvents.size > 2
+                    
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Box(modifier = Modifier.alpha(if (isFaded) 0.4f else 1f)) {
+                            EventCard(
+                                eventState = eventState,
+                                currentUser = currentUser,
+                                isActionNeeded = false,
+                                onDelete = { onDeleteEvent(eventState.request.id) },
+                                onClick = { if (!isFaded) onOpenEvent(eventState.request.id) else isPastEventsExpanded = true },
+                                isPastEvent = true
+                            )
+                        }
+                        
+                        if (isFaded) {
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clickable { isPastEventsExpanded = true },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f), CircleShape)
+                                        .padding(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "Expand",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

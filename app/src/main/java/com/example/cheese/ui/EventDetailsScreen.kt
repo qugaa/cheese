@@ -93,19 +93,11 @@ fun EventDetailsScreen(
         if (startCell == null) "—"
         else if (endCell == null || startCell == endCell) {
             fullDateFormatter.format(Date(gridConfig.cellToTimestamp(startCell)))
-        } else if (dateOnly) {
-            val minCell = minOf(startCell, endCell)
-            val maxCell = maxOf(startCell, endCell)
-            val startStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(minCell)))
-            val endStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(maxCell)))
-            if (startStr == endStr) startStr else "$startStr → $endStr"
         } else {
-            val sCol = startCell % gridConfig.cols
-            val eCol = endCell % gridConfig.cols
-            val minCol = minOf(sCol, eCol)
-            val maxCol = maxOf(sCol, eCol)
-            val startStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(minCol)))
-            val endStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(maxCol)))
+            val firstCell = if (gridConfig.cellToTimestamp(startCell) <= gridConfig.cellToTimestamp(endCell)) startCell else endCell
+            val lastCell = if (gridConfig.cellToTimestamp(startCell) <= gridConfig.cellToTimestamp(endCell)) endCell else startCell
+            val startStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(firstCell)))
+            val endStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(lastCell)))
             if (startStr == endStr) startStr else "$startStr → $endStr"
         }
     }
@@ -115,11 +107,9 @@ fun EventDetailsScreen(
         else if (dateOnly) "All day"
         else if (endCell == null || startCell == endCell) gridConfig.cellToHour(startCell)
         else {
-            val sRow = startCell / gridConfig.cols
-            val eRow = endCell / gridConfig.cols
-            val minRow = minOf(sRow, eRow)
-            val maxRow = maxOf(sRow, eRow)
-            "${gridConfig.hourLabels.getOrElse(minRow) { "?" }} → ${gridConfig.hourLabels.getOrElse(maxRow) { "?" }}"
+            val firstCell = if (gridConfig.cellToTimestamp(startCell) <= gridConfig.cellToTimestamp(endCell)) startCell else endCell
+            val lastCell = if (gridConfig.cellToTimestamp(startCell) <= gridConfig.cellToTimestamp(endCell)) endCell else startCell
+            "${gridConfig.cellToHour(firstCell)} → ${gridConfig.cellToHour(lastCell)}"
         }
     }
 

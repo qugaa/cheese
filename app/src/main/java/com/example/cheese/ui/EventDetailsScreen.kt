@@ -81,6 +81,7 @@ fun EventDetailsScreen(
     val totalParticipants = eventRequest.invitees.size
 
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
+    val fullDateFormatter = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
 
     fun timeKey(index: Int): Int =
         (index % gridConfig.cols) * gridConfig.rows + (index / gridConfig.cols)
@@ -90,14 +91,14 @@ fun EventDetailsScreen(
 
     val dayLabel = remember(startCell, endCell, gridConfig, dateOnly) {
         if (startCell == null) "—"
-        else if (endCell == null || startCell == endCell) gridConfig.cellToDay(startCell)
-        else {
-            val sCol = startCell % gridConfig.cols
-            val eCol = endCell % gridConfig.cols
-            val minCol = minOf(sCol, eCol)
-            val maxCol = maxOf(sCol, eCol)
-            if (minCol == maxCol) gridConfig.cellToDay(startCell)
-            else "${gridConfig.dayLabels.getOrElse(minCol) { "?" }} → ${gridConfig.dayLabels.getOrElse(maxCol) { "?" }}"
+        else if (endCell == null || startCell == endCell) {
+            fullDateFormatter.format(Date(gridConfig.cellToTimestamp(startCell)))
+        } else {
+            val firstCell = if (gridConfig.cellToTimestamp(startCell) <= gridConfig.cellToTimestamp(endCell)) startCell else endCell
+            val lastCell = if (gridConfig.cellToTimestamp(startCell) <= gridConfig.cellToTimestamp(endCell)) endCell else startCell
+            val startStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(firstCell)))
+            val endStr = fullDateFormatter.format(Date(gridConfig.cellToTimestamp(lastCell)))
+            if (startStr == endStr) startStr else "$startStr → $endStr"
         }
     }
 
@@ -106,37 +107,46 @@ fun EventDetailsScreen(
         else if (dateOnly) "All day"
         else if (endCell == null || startCell == endCell) gridConfig.cellToHour(startCell)
         else {
-            val sRow = startCell / gridConfig.cols
-            val eRow = endCell / gridConfig.cols
-            val minRow = minOf(sRow, eRow)
-            val maxRow = maxOf(sRow, eRow)
-            "${gridConfig.hourLabels.getOrElse(minRow) { "?" }} → ${gridConfig.hourLabels.getOrElse(maxRow) { "?" }}"
+            val firstCell = if (gridConfig.cellToTimestamp(startCell) <= gridConfig.cellToTimestamp(endCell)) startCell else endCell
+            val lastCell = if (gridConfig.cellToTimestamp(startCell) <= gridConfig.cellToTimestamp(endCell)) endCell else startCell
+            "${gridConfig.cellToHour(firstCell)} → ${gridConfig.cellToHour(lastCell)}"
         }
     }
 
-    val consensusCount = remember(startCell, endCell, responses, gridConfig, eventRequest, dateOnly) {
-        if (startCell == null) 0
+    val selectedTimestamps = remember(startCell, endCell, gridConfig, dateOnly) {
+        if (startCell == null) emptyList()
         else {
             val endVal = endCell ?: startCell
             val minCell = minOf(startCell, endVal)
             val maxCell = maxOf(startCell, endVal)
-            val timestamps = if (dateOnly) {
-                (minCell..maxCell).map { gridConfig.cellToTimestamp(it) }
+            val cellRange = if (dateOnly) {
+                minCell..maxCell
             } else {
                 val minKey = minOf(timeKey(startCell), timeKey(endVal))
                 val maxKey = maxOf(timeKey(startCell), timeKey(endVal))
                 (0 until gridConfig.totalCells).filter { cell ->
                     timeKey(cell) in minKey..maxKey
-                }.map { gridConfig.cellToTimestamp(it) }
+                }
             }
-            eventRequest.invitees.count { invitee ->
-                responses[invitee.name]?.let { r ->
-                    timestamps.isNotEmpty() && timestamps.all { ts -> r.availability.contains(ts) }
-                } == true
-            }
+            cellRange.map { gridConfig.cellToTimestamp(it) }
         }
     }
-    val consensusPct = if (totalParticipants > 0) (consensusCount * 100f / totalParticipants).toInt() else 0
+
+    val averageConsensusPct = remember(selectedTimestamps, responses, eventRequest.invitees) {
+        if (selectedTimestamps.isEmpty() || eventRequest.invitees.isEmpty()) 0
+        else {
+            var sum = 0f
+            eventRequest.invitees.forEach { invitee ->
+                val response = responses[invitee.name]
+                val attendedCount = if (response != null) {
+                    selectedTimestamps.count { ts -> response.availability.contains(ts) }
+                } else 0
+                val attendanceFraction = attendedCount.toFloat() / selectedTimestamps.size
+                sum += attendanceFraction
+            }
+            ((sum / eventRequest.invitees.size) * 100f).toInt()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -191,7 +201,7 @@ fun EventDetailsScreen(
                     SummaryRow(label = "Time", value = if (eventRequest.dateOnlyMode) "All day" else hourLabel)
                     SummaryRow(
                         label = "Consensus",
-                        value = "$consensusCount / $totalParticipants participants ($consensusPct%)"
+                        value = "$averageConsensusPct%"
                     )
                 }
             }
@@ -213,24 +223,7 @@ fun EventDetailsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    val selectedTimestamps = remember(startCell, endCell, gridConfig, dateOnly) {
-                        if (startCell == null) emptyList()
-                        else {
-                            val endVal = endCell ?: startCell
-                            val minCell = minOf(startCell, endVal)
-                            val maxCell = maxOf(startCell, endVal)
-                            val cellRange = if (dateOnly) {
-                                minCell..maxCell
-                            } else {
-                                val minKey = minOf(timeKey(startCell), timeKey(endVal))
-                                val maxKey = maxOf(timeKey(startCell), timeKey(endVal))
-                                (0 until gridConfig.totalCells).filter { cell ->
-                                    timeKey(cell) in minKey..maxKey
-                                }
-                            }
-                            cellRange.map { gridConfig.cellToTimestamp(it) }
-                        }
-                    }
+
 
                     eventRequest.invitees.forEach { invitee ->
                         val response = responses[invitee.name]

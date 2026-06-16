@@ -104,6 +104,8 @@ import com.example.cheese.data.EventTemplate
 import com.example.cheese.data.GridConfig
 import com.example.cheese.data.ParticipantResponse
 import com.example.cheese.data.Invitee
+import com.example.cheese.data.getConfirmedEventDates
+import com.example.cheese.data.getConfirmedEventCells
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import androidx.compose.ui.window.DialogProperties
@@ -137,6 +139,10 @@ fun OrganizerScreen(
         eventRequest.invitees.map { it.name }
     )
     var saveAsTemplate by remember(hasMatching) { mutableStateOf(hasMatching) }
+
+    val events by viewModel.events.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
+    val eventsOnDays = remember(events) { events.getConfirmedEventDates() }
 
     var emojiList by remember { mutableStateOf(COMMON_EMOJIS) }
     var showAddEmojiDialog by remember { mutableStateOf(false) }
@@ -503,20 +509,16 @@ fun OrganizerScreen(
                         },
                         onDragStateChanged = { interacting ->
                             scrollEnabled = !interacting
-                        }
+                        },
+                        eventsOnDays = eventsOnDays
                     )
 
                     val selectedDatesList = eventRequest.selectedDatesList
                     if (selectedDatesList.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "Specific Hours",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
                         
                         val draftCells by viewModel.draftAvailability.collectAsState()
+                        val hasSpecificHours = draftCells.isNotEmpty()
                         
                         Card(
                             modifier = Modifier
@@ -525,9 +527,13 @@ fun OrganizerScreen(
                                     showTimePickerDialog = true
                                 },
                             shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+                            border = BorderStroke(
+                                1.dp, 
+                                if (hasSpecificHours) Color(0xFF4CAF50).copy(alpha = 0.5f) 
+                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                            ),
                             colors = CardDefaults.cardColors(
-                                containerColor = Color.Transparent
+                                containerColor = if (hasSpecificHours) Color(0xFFE8F5E9) else Color.Transparent
                             )
                         ) {
                             Row(
@@ -536,26 +542,26 @@ fun OrganizerScreen(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = if (draftCells.isEmpty()) "All-Day" else "You Selected Specific Hours",
+                                        text = if (hasSpecificHours) "Specific hours selected" else "Specific Hours (Optional)",
                                         style = MaterialTheme.typography.bodyLarge,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        color = if (hasSpecificHours) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurface
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = if (draftCells.isEmpty()) {
-                                            "Tap to specify particular hours of the day."
+                                        text = if (hasSpecificHours) {
+                                            "Ready to be sent. Tap to edit."
                                         } else {
-                                            "Tap to edit"
+                                            "Tap to specify particular hours of the day."
                                         },
                                         style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = if (hasSpecificHours) Color(0xFF388E3C) else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                                 Icon(
                                     imageVector = Icons.Default.Edit,
                                     contentDescription = "Edit times",
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = if (hasSpecificHours) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
@@ -676,7 +682,9 @@ fun OrganizerScreen(
                             color = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        var showDragHint by remember { mutableStateOf(true) }
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        val sharedPrefs = remember { context.getSharedPreferences("cheese_prefs", android.content.Context.MODE_PRIVATE) }
+                        var showDragHint by remember { mutableStateOf(sharedPrefs.getBoolean("show_drag_hint", true)) }
                         Text(
                             text = "Paint the hours that work. Participants can only choose within these times.",
                             style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
@@ -690,6 +698,13 @@ fun OrganizerScreen(
                                 .weight(1f)
                                 .fillMaxWidth()
                         ) {
+                            val eventsOnCells = remember(events, config, currentUser) {
+                                if (currentUser != null) {
+                                    events.filter { it.request.inviteeNames.contains(currentUser) }
+                                        .getConfirmedEventCells(config)
+                                } else emptyMap()
+                            }
+
                             AvailabilityGrid(
                                 gridConfig = config,
                                 selectedCells = draftCells,
@@ -707,11 +722,17 @@ fun OrganizerScreen(
                                     gridScrollEnabled = !interacting
                                 },
                                 visibleCols = visibleCols,
-                                verticalScrollState = gridScrollState
+                                verticalScrollState = gridScrollState,
+                                eventsOnCells = eventsOnCells
                             )
                             if (showDragHint) {
                                 DragGestureHintOverlay(
                                     onDismiss = { showDragHint = false },
+                                    onNeverShowAgain = {
+                                        context.getSharedPreferences("cheese_prefs", android.content.Context.MODE_PRIVATE)
+                                            .edit().putBoolean("show_drag_hint", false).apply()
+                                        showDragHint = false
+                                    },
                                     backgroundAlpha = 0.35f
                                 )
                             }
@@ -758,7 +779,8 @@ private fun HorizontalMonthCalendar(
     selectedDayMillis: List<Long>,
     onDayToggled: (Long) -> Unit,
     onRangeDragged: (Long, Long, Boolean) -> Unit,
-    onDragStateChanged: ((Boolean) -> Unit)? = null
+    onDragStateChanged: ((Boolean) -> Unit)? = null,
+    eventsOnDays: Map<LocalDate, List<String>> = emptyMap()
 ) {
     val minDate = remember { LocalDate.now() }
     val baseMonth = remember(minDate) { YearMonth.from(minDate) }
@@ -773,7 +795,14 @@ private fun HorizontalMonthCalendar(
     val monthLabel =
         "${visibleMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault())} ${visibleMonth.year}"
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    androidx.compose.material3.Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        )
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
 
         // ── Month navigation header ──────────────────────────────────────────
         Row(
@@ -845,9 +874,11 @@ private fun HorizontalMonthCalendar(
                 selectedDates = selectedDates,
                 onDayClick = { date -> onDayToggled(date.toUtcMillis()) },
                 onRangeDragged = onRangeDragged,
-                onDragStateChanged = onDragStateChanged
+                onDragStateChanged = onDragStateChanged,
+                eventsOnDays = eventsOnDays
             )
         }
+    }
     }
 }
 
@@ -871,7 +902,8 @@ private fun MonthDaysGrid(
     responses: Map<String, ParticipantResponse> = emptyMap(),
     showFriendAvailabilities: Boolean = false,
     participantName: String? = null,
-    selectedFriend: String? = null
+    selectedFriend: String? = null,
+    eventsOnDays: Map<LocalDate, List<String>> = emptyMap()
 ) {
     val daysInMonth = month.lengthOfMonth()
     // ISO day-of-week: Monday = 1 … Sunday = 7 → blank cells before day 1.
@@ -1021,6 +1053,7 @@ private fun MonthDaysGrid(
                                     selectedFriendAvailable = isSelectedFriendAvailable,
                                     showCounts = showCounts,
                                     modifier = Modifier.weight(1f),
+                                    events = eventsOnDays[date] ?: emptyList(),
                                     onClick = { onDayClick(date) }
                                 )
                             } else {
@@ -1033,6 +1066,7 @@ private fun MonthDaysGrid(
                                 isAnchor = date == startDate || date == endDate || date in selectedDates,
                                 inRange = startDate != null && endDate != null && date.isAfter(startDate) && date.isBefore(endDate),
                                 modifier = Modifier.weight(1f),
+                                events = eventsOnDays[date] ?: emptyList(),
                                 onClick = { onDayClick(date) }
                             )
                         }
@@ -1061,7 +1095,8 @@ fun MultiSelectMonthCalendar(
     responses: Map<String, ParticipantResponse> = emptyMap(),
     showFriendAvailabilities: Boolean = false,
     participantName: String? = null,
-    selectedFriend: String? = null
+    selectedFriend: String? = null,
+    eventsOnDays: Map<LocalDate, List<String>> = emptyMap()
 ) {
     val minDate = remember(minDateMillis) { minDateMillis.toUtcLocalDate() }
     val maxDate = remember(maxDateMillis) { maxDateMillis.toUtcLocalDate() }
@@ -1081,7 +1116,14 @@ fun MultiSelectMonthCalendar(
     val monthLabel =
         "${visibleMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault())} ${visibleMonth.year}"
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    androidx.compose.material3.Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        )
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
 
         // ── Month navigation header ──────────────────────────────────────────
         Row(
@@ -1162,9 +1204,11 @@ fun MultiSelectMonthCalendar(
                 responses = responses,
                 showFriendAvailabilities = showFriendAvailabilities,
                 participantName = participantName,
-                selectedFriend = selectedFriend
+                selectedFriend = selectedFriend,
+                eventsOnDays = eventsOnDays
             )
         }
+    }
     }
 }
 
@@ -1176,6 +1220,7 @@ private fun DayCell(
     isAnchor: Boolean,
     inRange: Boolean,
     modifier: Modifier = Modifier,
+    events: List<String> = emptyList(),
     onClick: () -> Unit
 ) {
     val background = when {
@@ -1194,14 +1239,26 @@ private fun DayCell(
             .height(44.dp)
             .clip(CircleShape)
             .background(background)
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
+            .clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = day.toString(),
-            style = MaterialTheme.typography.bodyMedium,
-            color = foreground
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = day.toString(),
+                style = if (enabled) MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold) else MaterialTheme.typography.bodyMedium,
+                color = foreground
+            )
+            if (events.isNotEmpty()) {
+                Text(
+                    text = events.take(3).joinToString(""),
+                    fontSize = 8.sp,
+                    lineHeight = 8.sp
+                )
+            }
+        }
     }
 }
 
@@ -1218,15 +1275,16 @@ private fun HeatmapDayCell(
     selectedFriendAvailable: Boolean = false,
     showCounts: Boolean = true,
     modifier: Modifier = Modifier,
+    events: List<String> = emptyList(),
     onClick: () -> Unit
 ) {
     val bg = when {
         showFriendAvailabilities && selectedFriendColor != null -> {
-            if (selectedFriendAvailable) selectedFriendColor else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+            if (selectedFriendAvailable) selectedFriendColor else Color.Transparent
         }
-        showFriendAvailabilities -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        showFriendAvailabilities -> Color.Transparent
         count > 0 -> heatColor(ratio)
-        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        else -> Color.Transparent
     }
 
     val foreground = when {
@@ -1293,12 +1351,31 @@ private fun HeatmapDayCell(
                         }
                     }
                 }
-            } else if (count > 0 && showCounts) {
-                Text(
-                    text = "$count",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 8.sp),
-                    color = foreground
-                )
+            } else {
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
+                    if (count > 0 && showCounts) {
+                        Text(
+                            text = "$count",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 8.sp),
+                            color = foreground,
+                            modifier = Modifier.padding(end = if (events.isNotEmpty()) 2.dp else 0.dp)
+                        )
+                    }
+                    
+                    if (events.isNotEmpty() && !showFriendAvailabilities) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(1.dp)
+                        ) {
+                            events.take(3).forEach { emoji ->
+                                Text(text = emoji, fontSize = 8.sp)
+                            }
+                        }
+                    }
+                }
             }
         }
     }

@@ -1,6 +1,8 @@
 package com.example.cheese.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import android.content.Context
+import androidx.lifecycle.AndroidViewModel
 import com.example.cheese.data.*
 import com.example.cheese.ui.theme.CuratedParticipantColors
 import com.google.firebase.firestore.FirebaseFirestore
@@ -18,9 +20,10 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
-class ScheduleViewModel : ViewModel() {
+class ScheduleViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = FirebaseFirestore.getInstance()
+    private val prefs = application.getSharedPreferences("cheese_prefs", Context.MODE_PRIVATE)
 
     // ── Auth & Users ──────────────────────────────────────────────────────────
 
@@ -46,6 +49,14 @@ class ScheduleViewModel : ViewModel() {
     private var eventsListener: ListenerRegistration? = null
     private var notificationsListener: ListenerRegistration? = null
 
+    init {
+        val savedUser = prefs.getString("current_user", null)
+        if (savedUser != null) {
+            _currentUser.value = savedUser
+            setupRealtimeListeners(savedUser)
+        }
+    }
+
     fun login(username: String, onSuccess: () -> Unit) {
         if (username.isBlank()) return
         _isLoggingIn.value = true
@@ -55,6 +66,7 @@ class ScheduleViewModel : ViewModel() {
         docRef.get().addOnSuccessListener { document ->
             if (document.exists()) {
                 _currentUser.value = username
+                prefs.edit().putString("current_user", username).apply()
                 setupRealtimeListeners(username)
                 onSuccess()
                 _isLoggingIn.value = false
@@ -67,6 +79,7 @@ class ScheduleViewModel : ViewModel() {
                 )
                 docRef.set(newUser).addOnSuccessListener {
                     _currentUser.value = username
+                    prefs.edit().putString("current_user", username).apply()
                     setupRealtimeListeners(username)
                     onSuccess()
                     _isLoggingIn.value = false
@@ -86,6 +99,7 @@ class ScheduleViewModel : ViewModel() {
         eventsListener?.remove()
         notificationsListener?.remove()
         _currentUser.value = null
+        prefs.edit().remove("current_user").apply()
         _friends.value = emptyList()
         _events.value = emptyList()
         _templates.value = emptyList()
@@ -1195,26 +1209,26 @@ class ScheduleViewModel : ViewModel() {
             } else {
                 GridConfig(state.request.startDateMillis, state.request.endDateMillis, state.request.startHour, state.request.endHour)
             }
+            val endIdx = endCellIndex ?: cellIndex
+            val firstCell = if (config.cellToTimestamp(cellIndex) <= config.cellToTimestamp(endIdx)) cellIndex else endIdx
+            val lastCell = if (config.cellToTimestamp(cellIndex) <= config.cellToTimestamp(endIdx)) endIdx else cellIndex
+
             val dayStr = if (endCellIndex == null || cellIndex == endCellIndex) {
                 config.cellToDay(cellIndex)
             } else {
-                val sCol = cellIndex % config.cols
-                val eCol = endCellIndex % config.cols
-                val minCol = minOf(sCol, eCol)
-                val maxCol = maxOf(sCol, eCol)
-                if (minCol == maxCol) config.cellToDay(cellIndex)
-                else "${config.dayLabels.getOrElse(minCol) { "?" }} → ${config.dayLabels.getOrElse(maxCol) { "?" }}"
+                val sCol = firstCell % config.cols
+                val eCol = lastCell % config.cols
+                if (sCol == eCol) config.cellToDay(firstCell)
+                else "${config.dayLabels.getOrElse(sCol) { "?" }} → ${config.dayLabels.getOrElse(eCol) { "?" }}"
             }
             val hourStr = if (isDateOnly) {
                 "all day"
             } else if (endCellIndex == null || cellIndex == endCellIndex) {
                 config.cellToHour(cellIndex)
             } else {
-                val sRow = cellIndex / config.cols
-                val eRow = endCellIndex / config.cols
-                val minRow = minOf(sRow, eRow)
-                val maxRow = maxOf(sRow, eRow)
-                "${config.hourLabels.getOrElse(minRow) { "?" }} → ${config.hourLabels.getOrElse(maxRow) { "?" }}"
+                val sRow = firstCell / config.cols
+                val eRow = lastCell / config.cols
+                "${config.hourLabels.getOrElse(sRow) { "?" }} → ${config.hourLabels.getOrElse(eRow) { "?" }}"
             }
             val timeLabel = if (isDateOnly) "$dayStr ($hourStr)" else "$dayStr, $hourStr"
             val hostName = state.request.invitees.firstOrNull()?.name ?: _currentUser.value ?: "Organizer"

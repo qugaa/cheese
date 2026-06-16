@@ -24,8 +24,12 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.ui.draw.alpha
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
@@ -40,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cheese.data.EventState
 import com.example.cheese.data.EventTemplate
+import com.example.cheese.data.isPastEvent
 import com.example.cheese.viewmodel.ScheduleViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -101,7 +106,7 @@ fun DashboardScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
 
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
 
     val context = LocalContext.current
     var showExplanationDialog by remember { mutableStateOf(false) }
@@ -213,11 +218,13 @@ fun DashboardScreen(
 
             if (selectedTabIndex == 0) {
                 // Events Tab
-                val finalizedEvents = remember(events) {
-                    events.filter { it.finalCellIndex != null }.sortedWith(eventComparator)
+                val activeEvents = remember(events) { events.filter { !it.isPastEvent() } }
+                
+                val finalizedEvents = remember(activeEvents) {
+                    activeEvents.filter { it.finalCellIndex != null }.sortedWith(eventComparator)
                 }
-                val unconfirmedEvents = remember(events) {
-                    events.filter { it.finalCellIndex == null }
+                val unconfirmedEvents = remember(activeEvents) {
+                    activeEvents.filter { it.finalCellIndex == null }
                 }
                 val actionNeededEvents = remember(unconfirmedEvents, currentUser) {
                     unconfirmedEvents.filter { eventState ->
@@ -835,22 +842,23 @@ private fun TemplateCard(template: EventTemplate, onClick: () -> Unit, onDeleteC
             }
         }
 
-        IconButton(
-            onClick = onDeleteClick,
+        Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(4.dp)
-                .size(24.dp)
+                .size(26.dp)
                 .background(
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
                     shape = CircleShape
                 )
+                .clickable { onDeleteClick() },
+            contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = Icons.Default.Close,
                 contentDescription = "Delete Template",
                 tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(14.dp)
+                modifier = Modifier.size(15.dp)
             )
         }
     }
@@ -941,31 +949,35 @@ private fun FinalizedEventCard(
                         val finalEndIndex = eventState.finalCellEndIndex
                         if (finalIndex != null) {
                             val isDateOnly = eventState.request.dateOnlyMode
-                            val config = if (isDateOnly) {
-                                com.example.cheese.data.GridConfig(
-                                    eventState.request.startDateMillis,
-                                    eventState.request.endDateMillis,
-                                    0,
-                                    1
-                                )
-                            } else {
-                                com.example.cheese.data.GridConfig(
-                                    eventState.request.startDateMillis,
-                                    eventState.request.endDateMillis,
-                                    eventState.request.startHour,
-                                    eventState.request.endHour
-                                )
+                            val config = remember(eventState.request) {
+                                if (isDateOnly) {
+                                    com.example.cheese.data.GridConfig(
+                                        eventState.request.startDateMillis,
+                                        eventState.request.endDateMillis,
+                                        0,
+                                        1
+                                    )
+                                } else {
+                                    com.example.cheese.data.GridConfig(
+                                        eventState.request.startDateMillis,
+                                        eventState.request.endDateMillis,
+                                        eventState.request.startHour,
+                                        eventState.request.endHour
+                                    )
+                                }
                             }
+
+                            val endIdx = finalEndIndex ?: finalIndex
+                            val firstCell = if (config.cellToTimestamp(finalIndex) <= config.cellToTimestamp(endIdx)) finalIndex else endIdx
+                            val lastCell = if (config.cellToTimestamp(finalIndex) <= config.cellToTimestamp(endIdx)) endIdx else finalIndex
 
                             val dayStr = if (finalEndIndex == null || finalIndex == finalEndIndex) {
                                 config.cellToDay(finalIndex)
                             } else {
-                                val sCol = finalIndex % config.cols
-                                val eCol = finalEndIndex % config.cols
-                                val minCol = minOf(sCol, eCol)
-                                val maxCol = maxOf(sCol, eCol)
-                                if (minCol == maxCol) config.cellToDay(finalIndex)
-                                else "${config.dayLabels.getOrElse(minCol) { "?" }} → ${config.dayLabels.getOrElse(maxCol) { "?" }}"
+                                val sCol = firstCell % config.cols
+                                val eCol = lastCell % config.cols
+                                if (sCol == eCol) config.cellToDay(firstCell)
+                                else "${config.dayLabels.getOrElse(sCol) { "?" }} → ${config.dayLabels.getOrElse(eCol) { "?" }}"
                             }
 
                             val hourStr = if (isDateOnly) {
@@ -973,11 +985,9 @@ private fun FinalizedEventCard(
                             } else if (finalEndIndex == null || finalIndex == finalEndIndex) {
                                 config.cellToHour(finalIndex)
                             } else {
-                                val sRow = finalIndex / config.cols
-                                val eRow = finalEndIndex / config.cols
-                                val minRow = minOf(sRow, eRow)
-                                val maxRow = maxOf(sRow, eRow)
-                                "${config.hourLabels.getOrElse(minRow) { "?" }} → ${config.hourLabels.getOrElse(maxRow) { "?" }}"
+                                val sRow = firstCell / config.cols
+                                val eRow = lastCell / config.cols
+                                "${config.hourLabels.getOrElse(sRow) { "?" }} → ${config.hourLabels.getOrElse(eRow) { "?" }}"
                             }
 
                             Text(
@@ -995,25 +1005,7 @@ private fun FinalizedEventCard(
             }
         }
 
-        // Small circular checkmark badge in the top right
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(8.dp)
-                .size(18.dp)
-                .background(
-                    color = Color.White.copy(alpha = 0.8f),
-                    shape = CircleShape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = "Confirmed",
-                tint = Color(0xFF4A4974),
-                modifier = Modifier.size(12.dp)
-            )
-        }
+
 
         // Red notification dot in the top left
         if (hasUnreadNotification) {
@@ -1038,7 +1030,8 @@ fun EventCard(
     hasUnreadNotification: Boolean = false,
     onDelete: () -> Unit,
     onClick: () -> Unit,
-    onAddParticipant: ((String, (Boolean, String) -> Unit) -> Unit)? = null
+    onAddParticipant: ((String, (Boolean, String) -> Unit) -> Unit)? = null,
+    isPastEvent: Boolean = false
 ) {
     val density = LocalDensity.current
     val maxRevealPx = with(density) { 100.dp.toPx() }
@@ -1249,7 +1242,7 @@ fun EventCard(
                             fontWeight = FontWeight.Bold
                         )
                     }
-                } else {
+                } else if (!isPastEvent) {
                     val pillText = if (isHost) "ORGANIZING" else "VOTED"
                     val pillBgColor = if (isHost) Color(0xFFDCE6FF) else Color(0xFFDCFCE7)
                     val pillTextColor = if (isHost) Color(0xFF2563EB) else Color(0xFF166534)
@@ -1559,22 +1552,38 @@ private fun CalendarTab(
     onDeleteEvent: (String) -> Unit
 ) {
     var currentMonth by remember { mutableStateOf(YearMonth.now()) }
-    var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
+    var selectedDateEpochDay by rememberSaveable { mutableStateOf<Long?>(null) }
+    val selectedDate = remember(selectedDateEpochDay) { selectedDateEpochDay?.let { java.time.LocalDate.ofEpochDay(it) } }
     
     val confirmedEventsByDate = remember(events) {
         val map = mutableMapOf<LocalDate, MutableList<EventState>>()
         events.forEach { eventState ->
             val finalIndex = eventState.finalCellIndex
-            if (finalIndex != null) {
+            val finalEndIndex = eventState.finalCellEndIndex ?: finalIndex
+            if (finalIndex != null && finalEndIndex != null) {
                 val isDateOnly = eventState.request.dateOnlyMode
                 val config = if (isDateOnly) {
                     GridConfig(eventState.request.startDateMillis, eventState.request.endDateMillis, 0, 1)
                 } else {
                     GridConfig(eventState.request.startDateMillis, eventState.request.endDateMillis, eventState.request.startHour, eventState.request.endHour)
                 }
-                val timestamp = config.cellToTimestamp(finalIndex)
-                val date = java.time.Instant.ofEpochMilli(timestamp).atZone(java.time.ZoneOffset.UTC).toLocalDate()
-                map.getOrPut(date) { mutableListOf() }.add(eventState)
+                
+                // For regular events, cells might be across columns. For date-only, cells are dates directly.
+                // Using min/max in case the start/end indexes are flipped visually, though usually start <= end.
+                val minIdx = minOf(finalIndex, finalEndIndex)
+                val maxIdx = maxOf(finalIndex, finalEndIndex)
+                
+                val startTimestamp = config.cellToTimestamp(minIdx)
+                val endTimestamp = config.cellToTimestamp(maxIdx)
+                
+                val startDate = java.time.Instant.ofEpochMilli(startTimestamp).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+                val endDate = java.time.Instant.ofEpochMilli(endTimestamp).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+                
+                var currDate = startDate
+                while (!currDate.isAfter(endDate)) {
+                    map.getOrPut(currDate) { mutableListOf() }.add(eventState)
+                    currDate = currDate.plusDays(1)
+                }
             }
         }
         map
@@ -1666,7 +1675,7 @@ private fun CalendarTab(
                                                 }
                                             )
                                             .clickable {
-                                                selectedDate = if (isSelected) null else date
+                                                selectedDateEpochDay = if (isSelected) null else date.toEpochDay()
                                             }
                                             .padding(4.dp),
                                         contentAlignment = Alignment.Center
@@ -1749,6 +1758,79 @@ private fun CalendarTab(
                                 onOpenEvent(eventState.request.id)
                             }
                         )
+                    }
+                }
+            }
+        }
+
+        var isPastEventsExpanded by remember { mutableStateOf(false) }
+        val pastEvents = remember(events) { events.filter { it.isPastEvent() }.sortedByDescending { it.request.endDateMillis } }
+
+        if (pastEvents.isNotEmpty() && selectedDate == null) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isPastEventsExpanded = !isPastEventsExpanded }
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Past Events",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Icon(
+                    imageVector = if (isPastEventsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isPastEventsExpanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            
+            Column(
+                modifier = Modifier.fillMaxWidth().animateContentSize(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val displayEvents = if (isPastEventsExpanded) pastEvents else pastEvents.take(3)
+                
+                displayEvents.forEachIndexed { index, eventState ->
+                    val isFaded = !isPastEventsExpanded && index == 2 && pastEvents.size > 2
+                    
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Box(modifier = Modifier.alpha(if (isFaded) 0.4f else 1f)) {
+                            EventCard(
+                                eventState = eventState,
+                                currentUser = currentUser,
+                                isActionNeeded = false,
+                                onDelete = { onDeleteEvent(eventState.request.id) },
+                                onClick = { if (!isFaded) onOpenEvent(eventState.request.id) else isPastEventsExpanded = true },
+                                isPastEvent = true
+                            )
+                        }
+                        
+                        if (isFaded) {
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clickable { isPastEventsExpanded = true },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f), CircleShape)
+                                        .padding(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "Expand",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -91,6 +91,8 @@ data class EventState(
     val organizerRestrictions: List<Long> = emptyList()
 )
 
+private val sharedGridDateFormatter by lazy { SimpleDateFormat("EEE dd", Locale.getDefault()) }
+
 /**
  * Dynamic grid dimensions based on the event's date range.
  * The number of columns adapts dynamically to the concrete calendar dates.
@@ -114,20 +116,22 @@ data class GridConfig(
 
     val totalCells: Int = rows * cols
 
-    private val dateFormatter = SimpleDateFormat("EEE dd", Locale.getDefault())
-
-    val dayLabels: List<String> = (0 until cols).map { colOffset ->
-        if (startDateMillis > 0L) {
-            val dateMillis = startDateMillis + colOffset * (1000 * 60 * 60 * 24L)
-            dateFormatter.format(Date(dateMillis))
-        } else {
-            "Day ${colOffset + 1}"
+    val dayLabels: List<String> by lazy {
+        (0 until cols).map { colOffset ->
+            if (startDateMillis > 0L) {
+                val dateMillis = startDateMillis + colOffset * (1000 * 60 * 60 * 24L)
+                sharedGridDateFormatter.format(Date(dateMillis))
+            } else {
+                "Day ${colOffset + 1}"
+            }
         }
     }
 
-    val hourLabels: List<String> = (startHour until endHour).map { h -> 
-        val displayHour = if (h >= 24) h - 24 else h
-        "%02d:00".format(displayHour)
+    val hourLabels: List<String> by lazy {
+        (startHour until endHour).map { h -> 
+            val displayHour = if (h >= 24) h - 24 else h
+            "%02d:00".format(displayHour)
+        }
     }
 
     /** Converts a (row, col) pair to a flat cell index. */
@@ -161,4 +165,105 @@ data class GridConfig(
         
         return cellIndex(row, col)
     }
+}
+
+fun EventState.isPastEvent(currentTimeMillis: Long = System.currentTimeMillis()): Boolean {
+    val finalIndex = finalCellIndex ?: return false
+    val finalEndIndex = finalCellEndIndex ?: finalIndex
+
+    val isDateOnly = request.dateOnlyMode
+    val config = if (isDateOnly) {
+        GridConfig(
+            startDateMillis = request.startDateMillis,
+            endDateMillis = request.endDateMillis,
+            startHour = 0,
+            endHour = 1
+        )
+    } else {
+        GridConfig(
+            startDateMillis = request.startDateMillis,
+            endDateMillis = request.endDateMillis,
+            startHour = request.startHour,
+            endHour = request.endHour
+        )
+    }
+
+    val startTs = config.cellToTimestamp(finalIndex)
+    val endTs = config.cellToTimestamp(finalEndIndex)
+    val endTimestamp = maxOf(startTs, endTs)
+
+    val endOfEventMillis = if (isDateOnly) {
+        endTimestamp + 24L * 60 * 60 * 1000L
+    } else {
+        endTimestamp + 60L * 60 * 1000L
+    }
+
+    return currentTimeMillis > endOfEventMillis + 24L * 60 * 60 * 1000L
+}
+
+fun EventState.getFinalTimestamps(): List<Long> {
+    val startCell = finalCellIndex ?: return emptyList()
+    val endCell = finalCellEndIndex ?: startCell
+    val dateOnly = request.dateOnlyMode
+    val config = if (dateOnly) {
+        GridConfig(request.startDateMillis, request.endDateMillis, 0, 1)
+    } else {
+        GridConfig(request.startDateMillis, request.endDateMillis, request.startHour, request.endHour)
+    }
+    val minCell = minOf(startCell, endCell)
+    val maxCell = maxOf(startCell, endCell)
+    
+    return if (dateOnly) {
+        (minCell..maxCell).map { config.cellToTimestamp(it) }
+    } else {
+        fun timeKey(index: Int): Int = (index % config.cols) * config.rows + (index / config.cols)
+        val minKey = minOf(timeKey(startCell), timeKey(endCell))
+        val maxKey = maxOf(timeKey(startCell), timeKey(endCell))
+        (0 until config.totalCells)
+            .filter { cell -> timeKey(cell) in minKey..maxKey }
+            .map { config.cellToTimestamp(it) }
+    }
+}
+
+fun List<EventState>.getConfirmedEventDates(): Map<java.time.LocalDate, List<String>> {
+    val map = mutableMapOf<java.time.LocalDate, MutableList<String>>()
+    this.forEach { state ->
+        if (state.finalCellIndex != null) {
+            val emoji = state.request.eventEmoji
+            state.getFinalTimestamps().forEach { ts ->
+                val date = java.time.Instant.ofEpochMilli(ts).atZone(java.time.ZoneId.of("UTC")).toLocalDate()
+                map.getOrPut(date) { mutableListOf() }.add(emoji)
+            }
+        }
+    }
+    return map.mapValues { it.value.distinct() }
+}
+
+fun List<EventState>.getConfirmedEventCells(currentGridConfig: GridConfig): Map<Int, List<String>> {
+    val map = mutableMapOf<Int, MutableList<String>>()
+    this.forEach { state ->
+        if (state.finalCellIndex != null) {
+            val emoji = state.request.eventEmoji
+            if (state.request.dateOnlyMode) {
+                state.getFinalTimestamps().forEach { ts ->
+                    val date = java.time.Instant.ofEpochMilli(ts).atZone(java.time.ZoneId.of("UTC")).toLocalDate()
+                    for (hour in currentGridConfig.startHour until currentGridConfig.endHour) {
+                        val hourTs = date.atStartOfDay(java.time.ZoneId.of("UTC")).plusHours(hour.toLong()).toInstant().toEpochMilli()
+                        val cell = currentGridConfig.timestampToCell(hourTs)
+                        if (cell != null) {
+                            map.getOrPut(cell) { mutableListOf() }.add(emoji)
+                        }
+                    }
+                }
+            } else {
+                state.getFinalTimestamps().forEach { ts ->
+                    val cell = currentGridConfig.timestampToCell(ts)
+                    if (cell != null) {
+                        map.getOrPut(cell) { mutableListOf() }.add(emoji)
+                    }
+                }
+            }
+        }
+    }
+    return map.mapValues { it.value.distinct() }
 }

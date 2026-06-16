@@ -1209,8 +1209,9 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
             } else {
                 GridConfig(state.request.startDateMillis, state.request.endDateMillis, state.request.startHour, state.request.endHour)
             }
-            val firstCell = if (endCellIndex == null || config.cellToTimestamp(cellIndex) <= config.cellToTimestamp(endCellIndex)) cellIndex else endCellIndex
-            val lastCell = if (endCellIndex == null || config.cellToTimestamp(cellIndex) <= config.cellToTimestamp(endCellIndex)) endCellIndex else cellIndex
+            val endIdx = endCellIndex ?: cellIndex
+            val firstCell = if (config.cellToTimestamp(cellIndex) <= config.cellToTimestamp(endIdx)) cellIndex else endIdx
+            val lastCell = if (config.cellToTimestamp(cellIndex) <= config.cellToTimestamp(endIdx)) endIdx else cellIndex
 
             val dayStr = if (endCellIndex == null || cellIndex == endCellIndex) {
                 config.cellToDay(cellIndex)

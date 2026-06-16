@@ -962,8 +962,9 @@ private fun FinalizedEventCard(
                                 )
                             }
 
-                            val firstCell = if (finalEndIndex == null || config.cellToTimestamp(finalIndex) <= config.cellToTimestamp(finalEndIndex)) finalIndex else finalEndIndex
-                            val lastCell = if (finalEndIndex == null || config.cellToTimestamp(finalIndex) <= config.cellToTimestamp(finalEndIndex)) finalEndIndex else finalIndex
+                            val endIdx = finalEndIndex ?: finalIndex
+                            val firstCell = if (config.cellToTimestamp(finalIndex) <= config.cellToTimestamp(endIdx)) finalIndex else endIdx
+                            val lastCell = if (config.cellToTimestamp(finalIndex) <= config.cellToTimestamp(endIdx)) endIdx else finalIndex
 
                             val dayStr = if (finalEndIndex == null || finalIndex == finalEndIndex) {
                                 config.cellToDay(finalIndex)

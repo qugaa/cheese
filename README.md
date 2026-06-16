@@ -6,20 +6,6 @@ A high-fidelity native Android prototype built with Jetpack Compose and Material
 
 ---
 
-## Architecture Migration
-
-> **Note:** This project was originally prototyped in SwiftUI (iOS 17+). The codebase has since been fully migrated to a native Android implementation using Jetpack Compose. All SwiftUI source files have been removed. The Android prototype is the canonical reference implementation going forward.
-
-| Layer | Legacy (iOS) | Current (Android) |
-|---|---|---|
-| **UI Framework** | SwiftUI (iOS 17+) | Jetpack Compose (Material 3) |
-| **State Management** | `@Observable` (`ScheduleStore`) | `ScheduleViewModel` + `StateFlow` |
-| **Navigation** | `TabView` + `NavigationStack` | Compose `NavHost` (single Activity) |
-| **Theme** | Apple HIG standard widgets | Material 3 dynamic color (`dynamicLightColorScheme`) |
-| **Backend** | None — mock local state | None — mock local state (`MOCK_PARTICIPANTS`) |
-
----
-
 ## Concept
 
 Cheese replaces chaotic, synchronous group-chat negotiations with a structured, deterministic data-gathering protocol. It minimises cognitive overload in Computer-Supported Cooperative Work (CSCW) by decomposing group scheduling into three discrete tasks:
@@ -148,7 +134,7 @@ Or open the project root in **Android Studio** and press **Run (⇧F10 / Shift+F
 
 | File | Purpose |
 |---|---|
-| `.gitignore` | Excludes macOS artefacts, Xcode legacy files, Android build outputs, and `.clinerules/` from version control |
+| `.gitignore` | Excludes Android build outputs, local configurations, and `.clinerules/` from version control |
 | `.clineignore` | Excludes Android build directories, Gradle caches, `.idea/`, and `.clinerules/` from AI code-context indexing |
 
 > `.clinerules/` is excluded from **both** files to ensure local AI prompt instructions are never tracked or surfaced in code reviews.
